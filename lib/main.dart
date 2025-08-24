@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'config/app_config.dart';
 import 'screens/landing_page.dart';
 import 'screens/admin_login_page.dart';
 import 'screens/admin_dashboard_page.dart';
@@ -23,13 +24,13 @@ void main() async {
   }
   
   await Firebase.initializeApp(
-    options: const FirebaseOptions(
-      apiKey: "AIzaSyAJ-zI4UrZxL2Z6qvt4qfEsDPnmgrm5iuI",
-      authDomain: "roll-and-read.firebaseapp.com",
-      projectId: "roll-and-read",
-      storageBucket: "roll-and-read.firebasestorage.app",
-      messagingSenderId: "13557902076",
-      appId: "1:13557902076:web:44d0c76a6fad7aca514579",
+    options: FirebaseOptions(
+      apiKey: AppConfig.firebaseApiKey,
+      authDomain: AppConfig.firebaseAuthDomain,
+      projectId: AppConfig.firebaseProjectId,
+      storageBucket: AppConfig.firebaseStorageBucket,
+      messagingSenderId: AppConfig.firebaseMessagingSenderId,
+      appId: AppConfig.firebaseAppId,
     ),
   );
   

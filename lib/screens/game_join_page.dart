@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../services/firestore_service.dart';
 import '../services/game_session_service.dart';
+import '../services/session_service.dart';
 import '../models/user_model.dart';
 import '../models/game_session_model.dart';
 import 'multiplayer_game_page.dart';
@@ -79,15 +80,18 @@ class _GameJoinPageState extends State<GameJoinPage> {
         );
 
         if (mounted && updatedGame != null) {
-          // Navigate to multiplayer game
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(
-              builder: (context) => MultiplayerGamePage(
-                user: user,
-                gameSession: updatedGame,
-              ),
-            ),
+          // Save game session and current route for session persistence
+          await SessionService.saveGameSession(updatedGame);
+          await SessionService.saveCurrentRoute('/multiplayer-game');
+          
+          // Navigate to multiplayer game using named route
+          Navigator.pushReplacementNamed(
+            context, 
+            '/multiplayer-game',
+            arguments: {
+              'user': user,
+              'gameSession': updatedGame,
+            },
           );
         }
       } catch (gameError) {

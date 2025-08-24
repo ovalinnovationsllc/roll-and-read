@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/firestore_service.dart';
+import '../services/session_service.dart';
 import '../models/user_model.dart';
 import 'roll_and_read_game.dart';
 
@@ -57,13 +58,12 @@ class _UserLoginPageState extends State<UserLoginPage> {
       }
 
       if (mounted) {
-        // Navigate to game with user data
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (context) => RollAndReadGameWithUser(user: user),
-          ),
-        );
+        // Save user and current route for session persistence
+        await SessionService.saveUser(user);
+        await SessionService.saveCurrentRoute('/game-join');
+        
+        // Navigate to game join page using named route
+        Navigator.pushReplacementNamed(context, '/game-join');
       }
     } catch (e) {
       setState(() {

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/firestore_service.dart';
+import '../services/session_service.dart';
 import '../models/user_model.dart';
 import 'admin_dashboard_page.dart';
 
@@ -53,13 +54,12 @@ class _AdminLoginPageState extends State<AdminLoginPage> {
       }
       
       if (mounted) {
-        // Navigate to admin dashboard
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (context) => AdminDashboardPage(adminUser: user),
-          ),
-        );
+        // Save user and current route for session persistence
+        await SessionService.saveUser(user);
+        await SessionService.saveCurrentRoute('/admin-dashboard');
+        
+        // Navigate to admin dashboard using named route
+        Navigator.pushReplacementNamed(context, '/admin-dashboard');
       }
     } catch (e) {
       setState(() {
