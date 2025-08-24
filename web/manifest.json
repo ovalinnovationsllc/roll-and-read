@@ -1,12 +1,12 @@
 {
-    "name": "roll_and_read",
-    "short_name": "roll_and_read",
+    "name": "Mrs. Elson's Roll and Read",
+    "short_name": "Roll & Read",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
-    "orientation": "portrait-primary",
+    "background_color": "#FFFFFF",
+    "theme_color": "#4CAF50",
+    "description": "An educational game for young learners to practice reading skills through fun dice rolling activities.",
+    "orientation": "any",
     "prefer_related_applications": false,
     "icons": [
         {

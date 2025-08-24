@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
-import 'roll_and_read_game.dart';
+import 'admin_login_page.dart';
+import 'user_login_page.dart';
+import 'game_join_page.dart';
 
 class LandingPage extends StatelessWidget {
   const LandingPage({super.key});
@@ -10,227 +12,166 @@ class LandingPage extends StatelessWidget {
     final screenWidth = MediaQuery.of(context).size.width;
     final screenHeight = MediaQuery.of(context).size.height;
     
-    // Calculate appropriate size for the logo
-    final logoSize = isTablet 
-        ? screenWidth * 0.12  // Larger on tablets
-        : screenWidth * 0.15; // Responsive on phones
-    
     return Scaffold(
-      backgroundColor: Colors.white,
-      body: SafeArea(
-        child: Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [
-                Colors.white,
-                Colors.green.shade50,
-              ],
-            ),
+      body: Container(
+        width: double.infinity,
+        height: double.infinity,
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Colors.green.shade50,
+              Colors.white,
+              Colors.green.shade50,
+            ],
           ),
-          child: Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                // Title banner
-                Container(
-                  padding: EdgeInsets.symmetric(
-                    horizontal: screenWidth * 0.05,
-                    vertical: 30,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.green.shade600,
-                    borderRadius: BorderRadius.circular(15),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.2),
-                        blurRadius: 10,
-                        offset: const Offset(0, 5),
-                      ),
-                    ],
-                  ),
-                  child: Text(
-                    "Mrs Elson's Roll and Read",
-                    style: TextStyle(
-                      fontSize: isTablet ? 42 : 32,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                ),
-                
-                const SizedBox(height: 60),
-                
-                // Play button
-                ElevatedButton(
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => const RollAndReadGame(),
-                      ),
-                    );
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.green.shade600,
-                    foregroundColor: Colors.white,
-                    padding: EdgeInsets.symmetric(
-                      horizontal: isTablet ? 60 : 50,
-                      vertical: isTablet ? 25 : 20,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(30),
-                    ),
-                    elevation: 5,
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.play_arrow,
-                        size: isTablet ? 32 : 28,
-                      ),
-                      const SizedBox(width: 10),
-                      Text(
-                        'Start Playing',
-                        style: TextStyle(
-                          fontSize: isTablet ? 24 : 20,
-                          fontWeight: FontWeight.bold,
+        ),
+        child: SafeArea(
+          child: Stack(
+            children: [
+              // Main centered content
+              Center(
+                child: SingleChildScrollView(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // App Icon
+                        Container(
+                          padding: const EdgeInsets.all(25),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            shape: BoxShape.circle,
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.green.shade300.withOpacity(0.4),
+                                blurRadius: 30,
+                                spreadRadius: 10,
+                                offset: const Offset(0, 10),
+                              ),
+                            ],
+                          ),
+                          child: Image.asset(
+                            'assets/images/app_icon.png',
+                            width: isTablet ? 160 : 120,
+                            height: isTablet ? 160 : 120,
+                            fit: BoxFit.contain,
+                          ),
                         ),
+                        
+                        const SizedBox(height: 40),
+                        
+                        // Title
+                        Text(
+                          "ROLL AND READ",
+                          style: TextStyle(
+                            fontSize: isTablet ? 48 : 36,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.green.shade700,
+                            letterSpacing: 3,
+                            height: 1.2,
+                          ),
+                        ),
+                        
+                        const SizedBox(height: 60),
+                        
+                        // Join Game button
+                        ElevatedButton(
+                          onPressed: () {
+                            Navigator.pushNamed(context, '/game-join');
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.green.shade600,
+                            foregroundColor: Colors.white,
+                            padding: EdgeInsets.symmetric(
+                              horizontal: isTablet ? 60 : 50,
+                              vertical: isTablet ? 25 : 20,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(35),
+                            ),
+                            elevation: 8,
+                            shadowColor: Colors.green.shade300,
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.play_circle_filled,
+                                size: isTablet ? 32 : 28,
+                              ),
+                              const SizedBox(width: 12),
+                              Text(
+                                'JOIN GAME',
+                                style: TextStyle(
+                                  fontSize: isTablet ? 22 : 18,
+                                  fontWeight: FontWeight.bold,
+                                  letterSpacing: 1.5,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              
+              // Footer at bottom
+              Positioned(
+                bottom: 20,
+                left: 0,
+                right: 0,
+                child: Column(
+                  children: [
+                    // Admin access button
+                    TextButton(
+                      onPressed: () {
+                        Navigator.pushNamed(context, '/admin-login');
+                      },
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
                       ),
-                    ],
-                  ),
-                ),
-                
-                const SizedBox(height: 30),
-                
-                // Instructions button
-                TextButton(
-                  onPressed: () {
-                    _showInstructions(context);
-                  },
-                  child: Text(
-                    'How to Play',
-                    style: TextStyle(
-                      fontSize: isTablet ? 18 : 16,
-                      color: Colors.green.shade700,
-                      decoration: TextDecoration.underline,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.admin_panel_settings,
+                            size: isTablet ? 20 : 18,
+                            color: Colors.grey.shade600,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            'Admin Access',
+                            style: TextStyle(
+                              fontSize: isTablet ? 15 : 13,
+                              color: Colors.grey.shade600,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                ),
-                
-                // Footer
-                const Spacer(),
-                Container(
-                  padding: const EdgeInsets.all(20),
-                  child: Text(
-                    'Built by: Oval Innovations, LLC',
-                    style: TextStyle(
-                      fontSize: isTablet ? 14 : 12,
-                      color: Colors.grey.shade600,
-                      fontStyle: FontStyle.italic,
+                    const SizedBox(height: 8),
+                    Text(
+                      'Built by Oval Innovations, LLC',
+                      style: TextStyle(
+                        fontSize: isTablet ? 12 : 11,
+                        color: Colors.grey.shade500,
+                        fontStyle: FontStyle.italic,
+                      ),
                     ),
-                  ),
+                  ],
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),
-    );
-  }
-  
-  void _showInstructions(BuildContext context) {
-    final isTablet = MediaQuery.of(context).size.shortestSide >= 600;
-    
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text(
-            'How to Play Roll and Read',
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              color: Colors.green,
-            ),
-          ),
-          content: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _buildInstructionStep('1', 'Tap the dice to roll it'),
-                const SizedBox(height: 12),
-                _buildInstructionStep('2', 'Look at the number you rolled'),
-                const SizedBox(height: 12),
-                _buildInstructionStep('3', 'Find the matching column in the grid'),
-                const SizedBox(height: 12),
-                _buildInstructionStep('4', 'Choose a word from that column to read'),
-                const SizedBox(height: 12),
-                _buildInstructionStep('5', 'Tap the word to mark it as complete'),
-                const SizedBox(height: 12),
-                _buildInstructionStep('6', 'Try to read all the words!'),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.of(context).pop();
-              },
-              child: Text(
-                'Got it!',
-                style: TextStyle(
-                  fontSize: isTablet ? 18 : 16,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-          ],
-        );
-      },
-    );
-  }
-  
-  Widget _buildInstructionStep(String number, String instruction) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          width: 24,
-          height: 24,
-          decoration: BoxDecoration(
-            color: Colors.green.shade100,
-            shape: BoxShape.circle,
-            border: Border.all(
-              color: Colors.green.shade600,
-              width: 2,
-            ),
-          ),
-          child: Center(
-            child: Text(
-              number,
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                color: Colors.green.shade700,
-                fontSize: 12,
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Text(
-            instruction,
-            style: const TextStyle(
-              fontSize: 16,
-              height: 1.4,
-            ),
-          ),
-        ),
-      ],
     );
   }
 }

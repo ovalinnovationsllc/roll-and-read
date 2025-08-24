@@ -1,9 +1,19 @@
 import 'package:flutter/material.dart';
 import 'dart:math';
 import '../widgets/animated_dice.dart';
+import '../services/datamuse_service.dart';
+import '../models/user_model.dart';
+import '../models/game_session_model.dart';
 
 class RollAndReadGame extends StatefulWidget {
-  const RollAndReadGame({super.key});
+  final UserModel? user;
+  final GameSessionModel? gameSession;
+  
+  const RollAndReadGame({
+    super.key,
+    this.user,
+    this.gameSession,
+  });
 
   @override
   State<RollAndReadGame> createState() => _RollAndReadGameState();
@@ -14,19 +24,61 @@ class _RollAndReadGameState extends State<RollAndReadGame> {
   int _diceValue = 1;
   bool _isRolling = false;
   bool _canRoll = true;
+  bool _hasRolled = false;
+  bool _isLoadingWords = false;
   
   // Track which cells have been selected/completed
   final Set<String> _completedCells = {};
   
   // Grid content - 6 columns (for dice 1-6) x 6 rows
-  final List<List<String>> gridContent = [
-    ['cat', 'dog', 'pig', 'cow', 'hen', 'fox'],
-    ['run', 'hop', 'sit', 'jump', 'walk', 'skip'],
-    ['red', 'blue', 'green', 'pink', 'yellow', 'orange'],
-    ['mom', 'dad', 'sister', 'brother', 'baby', 'family'],
-    ['one', 'two', 'three', 'four', 'five', 'six'],
-    ['sun', 'moon', 'star', 'cloud', 'rain', 'snow'],
-  ];
+  late List<List<String>> gridContent;
+  
+  @override
+  void initState() {
+    super.initState();
+    _initializeGrid();
+    // Only load long U words if we're not using AI-generated words
+    if (widget.gameSession == null || !widget.gameSession!.useAIWords) {
+      _loadLongUWords();
+    }
+  }
+
+  void _initializeGrid() {
+    // Use AI-generated words if available, otherwise use default
+    if (widget.gameSession?.wordGrid != null) {
+      gridContent = widget.gameSession!.wordGrid!;
+    } else {
+      // Default word grid
+      gridContent = [
+        ['cat', 'dog', 'pig', 'cow', 'hen', 'fox'],
+        ['run', 'hop', 'sit', 'jump', 'walk', 'skip'],
+        ['red', 'blue', 'green', 'pink', 'yellow', 'orange'],
+        ['mom', 'dad', 'sister', 'brother', 'baby', 'family'],
+        ['one', 'two', 'three', 'four', 'five', 'six'],
+        ['sun', 'moon', 'star', 'cloud', 'rain', 'snow'],
+      ];
+    }
+  }
+  
+  Future<void> _loadLongUWords() async {
+    setState(() {
+      _isLoadingWords = true;
+    });
+    
+    try {
+      List<String> words = await DatamuseService.fetchLongUWords();
+      List<List<String>> newGrid = DatamuseService.organizeIntoGrid(words);
+      
+      setState(() {
+        gridContent = newGrid;
+        _isLoadingWords = false;
+      });
+    } catch (e) {
+      setState(() {
+        _isLoadingWords = false;
+      });
+    }
+  }
 
   void _rollDice() {
     if (!_canRoll) return;
@@ -39,6 +91,7 @@ class _RollAndReadGameState extends State<RollAndReadGame> {
     Future.delayed(const Duration(milliseconds: 1500), () {
       setState(() {
         _diceValue = _random.nextInt(6) + 1;
+        _hasRolled = true;
       });
 
       Future.delayed(const Duration(milliseconds: 200), () {
@@ -69,8 +122,10 @@ class _RollAndReadGameState extends State<RollAndReadGame> {
       _diceValue = 1;
       _isRolling = false;
       _canRoll = true;
+      _hasRolled = false;
       _completedCells.clear();
     });
+    _loadLongUWords(); // Reload words on reset
   }
 
   @override
@@ -83,7 +138,7 @@ class _RollAndReadGameState extends State<RollAndReadGame> {
       backgroundColor: Colors.white,
       appBar: AppBar(
         title: const Text(
-          "Mrs Elson's Roll and Read",
+          "Mrs. Elson's Roll and Read",
           style: TextStyle(
             fontWeight: FontWeight.bold,
             fontSize: 24,
@@ -118,12 +173,12 @@ class _RollAndReadGameState extends State<RollAndReadGame> {
             ),
             
             // Result display
-            if (!_isRolling && _diceValue > 0)
+            if (!_isRolling && _hasRolled)
               Container(
                 padding: const EdgeInsets.all(10),
                 color: Colors.amber.shade100,
                 child: Text(
-                  'You rolled a $_diceValue! Find a word in column $_diceValue',
+                  'You rolled a $_diceValue! Pick a word to read in column $_diceValue',
                   style: TextStyle(
                     fontSize: isTablet ? 18 : 16,
                     fontWeight: FontWeight.bold,
@@ -183,7 +238,26 @@ class _RollAndReadGameState extends State<RollAndReadGame> {
                             bottomRight: Radius.circular(10),
                           ),
                         ),
-                        child: Column(
+                        child: _isLoadingWords
+                          ? Center(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  CircularProgressIndicator(
+                                    color: Colors.green.shade600,
+                                  ),
+                                  const SizedBox(height: 16),
+                                  Text(
+                                    'Loading long u words...',
+                                    style: TextStyle(
+                                      fontSize: isTablet ? 18 : 16,
+                                      color: Colors.grey.shade700,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            )
+                          : Column(
                           children: [
                             for (int row = 0; row < 6; row++)
                               Expanded(

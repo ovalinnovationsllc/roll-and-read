@@ -50,6 +50,8 @@ android/app/google-services.json
 ios/Runner/GoogleService-Info.plist
 ios/Flutter/GoogleService-Info.plist
 macos/Runner/GoogleService-Info.plist
+web/firebase-config.js
+web/firebase-config.*.js
 
 # Environment configuration
 .env
