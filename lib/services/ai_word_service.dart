@@ -1,45 +1,17 @@
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
+import '../config/app_config.dart';
 import 'demo_ai_service.dart';
 
 class AIWordService {
   // Using Google Gemini API - free tier with 15 requests/minute
   static const String _geminiUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent';
   
-  // Securely load API key from environment variables with fallback
-  static String get _geminiApiKey {
-    // Try to get from environment first (with null safety)
-    try {
-      if (dotenv.isInitialized) {
-        final envKey = dotenv.env['GEMINI_API_KEY'];
-        if (envKey != null && envKey.isNotEmpty) {
-          return envKey;
-        }
-      }
-    } catch (e) {
-      print('Error accessing dotenv: $e');
-    }
-    
-    // Fallback API key when environment isn't available
-    return 'AIzaSyBB7llbMHCrxlGGlMPP6j_bniqxr-s9Oew';
-  }
+  // Get API key from secure configuration
+  static String get _geminiApiKey => AppConfig.geminiApiKey;
   
-  // Load demo mode setting from environment (defaults to false since we have a key)
-  static bool get _useDemoMode {
-    try {
-      if (dotenv.isInitialized) {
-        final envMode = dotenv.env['USE_DEMO_MODE']?.toLowerCase();
-        if (envMode != null) {
-          return envMode == 'true';
-        }
-      }
-    } catch (e) {
-      print('Error accessing dotenv for demo mode: $e');
-    }
-    // Default to false since we have an API key
-    return false;
-  }
+  // Get demo mode setting from configuration
+  static bool get _useDemoMode => AppConfig.useDemoMode;
   
   /// Generate a 6x6 grid of words based on teacher's prompt
   /// Returns a 6x6 matrix of words suitable for reading practice
@@ -269,7 +241,7 @@ No extra text, just the 6 comma-separated words.
     return {
       'demoMode': _useDemoMode,
       'apiType': 'Google Gemini',
-      'hasApiKey': _geminiApiKey.isNotEmpty,
+      'hasApiKey': AppConfig.hasApiKey,
       'freeRequests': '15 per minute',
       'model': 'gemini-1.5-flash-latest',
     };
