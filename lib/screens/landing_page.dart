@@ -9,7 +9,9 @@ class LandingPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isTablet = MediaQuery.of(context).size.shortestSide >= 600;
+    final screenSize = MediaQuery.of(context).size;
+    final isTablet = screenSize.shortestSide >= 600;
+    final isLargeScreen = screenSize.shortestSide >= 800; // Large tablets/desktops
     final screenWidth = MediaQuery.of(context).size.width;
     final screenHeight = MediaQuery.of(context).size.height;
     
@@ -57,20 +59,20 @@ class LandingPage extends StatelessWidget {
                           ),
                           child: Image.asset(
                             'assets/images/app_icon.png',
-                            width: isTablet ? 160 : 120,
-                            height: isTablet ? 160 : 120,
+                            width: isLargeScreen ? 300 : (isTablet ? 240 : 180),
+                            height: isLargeScreen ? 300 : (isTablet ? 240 : 180),
                             fit: BoxFit.contain,
                             errorBuilder: (context, error, stackTrace) {
                               return Container(
-                                width: isTablet ? 160 : 120,
-                                height: isTablet ? 160 : 120,
+                                width: isLargeScreen ? 300 : (isTablet ? 240 : 180),
+                                height: isLargeScreen ? 300 : (isTablet ? 240 : 180),
                                 decoration: BoxDecoration(
                                   color: AppColors.gamePrimary,
                                   borderRadius: BorderRadius.circular(20),
                                 ),
                                 child: Icon(
                                   Icons.school,
-                                  size: isTablet ? 80 : 60,
+                                  size: isLargeScreen ? 150 : (isTablet ? 120 : 90),
                                   color: Colors.white,
                                 ),
                               );

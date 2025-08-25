@@ -11,11 +11,17 @@ import '../services/sound_service.dart';
 class RollAndReadGame extends StatefulWidget {
   final UserModel? user;
   final GameSessionModel? gameSession;
+  final String? gameName;
+  final List<List<String>>? wordGrid;
+  final bool isTeacherMode;
   
   const RollAndReadGame({
     super.key,
     this.user,
     this.gameSession,
+    this.gameName,
+    this.wordGrid,
+    this.isTeacherMode = false,
   });
 
   @override
@@ -28,6 +34,7 @@ class _RollAndReadGameState extends State<RollAndReadGame> {
   bool _isRolling = false;
   bool _canRoll = true;
   bool _hasRolled = false;
+  bool _hasSelectedThisTurn = false; // Track if player has selected a square this turn
   bool _isLoadingWords = false;
   late FlutterTts _flutterTts;
   
@@ -71,15 +78,17 @@ class _RollAndReadGameState extends State<RollAndReadGame> {
   }
 
   void _initializeGrid() {
-    // Use AI-generated words if available, otherwise use default
-    if (widget.gameSession?.wordGrid != null) {
+    // Priority order: custom wordGrid > gameSession wordGrid > default
+    if (widget.wordGrid != null) {
+      gridContent = widget.wordGrid!;
+    } else if (widget.gameSession?.wordGrid != null) {
       gridContent = widget.gameSession!.wordGrid!;
     } else {
       // Default word grid
       gridContent = [
         ['cat', 'dog', 'pig', 'cow', 'hen', 'fox'],
         ['run', 'hop', 'sit', 'jump', 'walk', 'skip'],
-        ['red', 'blue', 'green', 'pink', 'yellow', 'orange'],
+        ['red', 'blue', 'green', 'pink', 'yellow', 'white'],
         ['mom', 'dad', 'sister', 'brother', 'baby', 'family'],
         ['one', 'two', 'three', 'four', 'five', 'six'],
         ['sun', 'moon', 'star', 'cloud', 'rain', 'snow'],
@@ -119,6 +128,7 @@ class _RollAndReadGameState extends State<RollAndReadGame> {
       setState(() {
         _diceValue = _random.nextInt(6) + 1;
         _hasRolled = true;
+        _hasSelectedThisTurn = false; // Reset selection flag for new turn
       });
 
       Future.delayed(const Duration(milliseconds: 200), () {
@@ -132,18 +142,31 @@ class _RollAndReadGameState extends State<RollAndReadGame> {
 
   void _toggleCell(int row, int col) {
     // Only allow marking cells in the column that matches the current dice value
-    if (col + 1 != _diceValue || _isRolling) return;
+    // and only after the user has rolled at least once
+    if (col + 1 != _diceValue || _isRolling || !_hasRolled) return;
+    
+    final cellKey = '$row-$col';
+    
+    // If the cell is already completed, allow deselection
+    if (_completedCells.contains(cellKey)) {
+      // Play word selection sound
+      SoundService.playWordSelect();
+      setState(() {
+        _completedCells.remove(cellKey);
+        _hasSelectedThisTurn = false; // Allow another selection this turn
+      });
+      return;
+    }
+    
+    // Don't allow new selections if player has already selected a square this turn
+    if (_hasSelectedThisTurn) return;
     
     // Play word selection sound
     SoundService.playWordSelect();
     
-    final cellKey = '$row-$col';
     setState(() {
-      if (_completedCells.contains(cellKey)) {
-        _completedCells.remove(cellKey);
-      } else {
-        _completedCells.add(cellKey);
-      }
+      _completedCells.add(cellKey);
+      _hasSelectedThisTurn = true; // Mark that player has selected a square this turn
     });
   }
 
@@ -153,6 +176,7 @@ class _RollAndReadGameState extends State<RollAndReadGame> {
       _isRolling = false;
       _canRoll = true;
       _hasRolled = false;
+      _hasSelectedThisTurn = false;
       _completedCells.clear();
     });
     _loadLongUWords(); // Reload words on reset
@@ -167,9 +191,9 @@ class _RollAndReadGameState extends State<RollAndReadGame> {
     return Scaffold(
       backgroundColor: AppColors.gameBackground,
       appBar: AppBar(
-        title: const Text(
-          "Mrs. Elson's Roll and Read",
-          style: TextStyle(
+        title: Text(
+          widget.gameName ?? widget.gameSession?.gameName ?? "Mrs. Elson's Roll and Read",
+          style: const TextStyle(
             fontWeight: FontWeight.bold,
             fontSize: 24,
           ),

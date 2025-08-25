@@ -211,12 +211,14 @@ class GameStateService {
   }
 
   // Approve a pronunciation attempt (Mrs. Elson marks it correct)
-  static Future<void> approvePronunciation({
+  static Future<String?> approvePronunciation({
     required String gameId,
     required String cellKey,
     List<String>? playerIds,
   }) async {
     try {
+      String? winnerId;
+      
       await _firestore.runTransaction((transaction) async {
         final docRef = _gameStatesCollection.doc(gameId.toUpperCase());
         final doc = await transaction.get(docRef);
@@ -228,13 +230,18 @@ class GameStateService {
         final gameState = GameStateModel.fromMap(doc.data() as Map<String, dynamic>);
         var updatedState = gameState.approvePronunciation(cellKey);
         
-        // Switch to next player's turn after approval
-        if (playerIds != null) {
+        // Check for winner after cell completion
+        winnerId = updatedState.checkForWinner();
+        
+        // Switch to next player's turn after approval (unless someone won)
+        if (winnerId == null && playerIds != null) {
           updatedState = updatedState.switchToNextTurn(playerIds);
         }
         
         transaction.update(docRef, updatedState.toMap());
       });
+      
+      return winnerId;
     } catch (e) {
       print('Error approving pronunciation: $e');
       rethrow;

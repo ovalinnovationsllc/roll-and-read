@@ -104,7 +104,8 @@ class _MultiplayerGamePageState extends State<MultiplayerGamePage> {
           return Scaffold(
             appBar: AppBar(
               title: const Text('Game Ended'),
-              backgroundColor: AppColors.mediumBlue,
+              backgroundColor: AppColors.gamePrimary,
+              foregroundColor: AppColors.onPrimary,
             ),
             body: const Center(
               child: Column(
@@ -279,7 +280,7 @@ class _MultiplayerGamePageState extends State<MultiplayerGamePage> {
                   const SizedBox(height: 24),
                   if (gameSession.players.length >= 1) ...[
                     Text(
-                      'Waiting for Mrs. Elson to start the game...',
+                      'Game will start automatically when ${gameSession.maxPlayers} players join...',
                       style: TextStyle(
                         fontSize: 16,
                         color: AppColors.textSecondary,

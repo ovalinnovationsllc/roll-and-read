@@ -376,4 +376,89 @@ class GameStateModel {
     final nextIndex = (currentIndex + 1) % playerIds.length;
     return copyWith(currentTurnPlayerId: playerIds[nextIndex]);
   }
+  
+  // Helper method to check if a player has won (6 in a row horizontally, vertically, or diagonally)
+  String? checkForWinner() {
+    for (String playerId in playerCompletedCells.keys) {
+      if (_hasPlayerWon(playerId)) {
+        return playerId;
+      }
+    }
+    return null;
+  }
+  
+  bool _hasPlayerWon(String playerId) {
+    final cells = playerCompletedCells[playerId] ?? {};
+    if (cells.length < 6) return false; // Need at least 6 cells to win
+    
+    // Convert cell keys to coordinates
+    final coordinates = <List<int>>[];
+    for (String cellKey in cells) {
+      final parts = cellKey.split('-');
+      if (parts.length == 2) {
+        final row = int.tryParse(parts[0]);
+        final col = int.tryParse(parts[1]);
+        if (row != null && col != null) {
+          coordinates.add([row, col]);
+        }
+      }
+    }
+    
+    // Check all possible lines of 6
+    return _checkLines(coordinates);
+  }
+  
+  bool _checkLines(List<List<int>> coordinates) {
+    // Check horizontal lines (same row)
+    for (int row = 0; row < 6; row++) {
+      int count = 0;
+      for (int col = 0; col < 6; col++) {
+        if (coordinates.any((coord) => coord[0] == row && coord[1] == col)) {
+          count++;
+        } else {
+          count = 0; // Reset if broken
+        }
+        if (count >= 6) return true;
+      }
+    }
+    
+    // Check vertical lines (same column)
+    for (int col = 0; col < 6; col++) {
+      int count = 0;
+      for (int row = 0; row < 6; row++) {
+        if (coordinates.any((coord) => coord[0] == row && coord[1] == col)) {
+          count++;
+        } else {
+          count = 0; // Reset if broken
+        }
+        if (count >= 6) return true;
+      }
+    }
+    
+    // Check diagonal lines (top-left to bottom-right)
+    // Main diagonal
+    int count = 0;
+    for (int i = 0; i < 6; i++) {
+      if (coordinates.any((coord) => coord[0] == i && coord[1] == i)) {
+        count++;
+      } else {
+        count = 0;
+      }
+      if (count >= 6) return true;
+    }
+    
+    // Check diagonal lines (top-right to bottom-left)  
+    // Anti-diagonal
+    count = 0;
+    for (int i = 0; i < 6; i++) {
+      if (coordinates.any((coord) => coord[0] == i && coord[1] == (5 - i))) {
+        count++;
+      } else {
+        count = 0;
+      }
+      if (count >= 6) return true;
+    }
+    
+    return false;
+  }
 }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
 import '../services/sound_service.dart';
+import '../config/app_colors.dart';
 
 class AnimatedDice extends StatefulWidget {
   final int value;
@@ -68,6 +69,11 @@ class _AnimatedDiceState extends State<AnimatedDice>
       _startRolling();
     } else if (!widget.isRolling && oldWidget.isRolling) {
       _stopRolling();
+    } else if (!widget.isRolling && widget.value != oldWidget.value) {
+      // Update display value when value changes while not rolling
+      setState(() {
+        _displayValue = widget.value;
+      });
     }
   }
 
@@ -146,7 +152,7 @@ class _AnimatedDiceState extends State<AnimatedDice>
 
   Widget _buildDiceFace(int value) {
     final dotSize = widget.size * 0.15;
-    final dotColor = Colors.black87;
+    final dotColor = AppColors.gamePrimary;
     
     return Container(
       padding: EdgeInsets.all(widget.size * 0.15),

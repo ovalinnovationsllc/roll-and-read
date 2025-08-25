@@ -12,7 +12,7 @@ class DemoAIService {
       ['horse', 'zebra', 'rabbit', 'squirrel', 'skunk', 'otter'],
     ],
     'colors': [
-      ['red', 'blue', 'green', 'yellow', 'orange', 'purple'],
+      ['red', 'blue', 'green', 'yellow', 'white', 'purple'],
       ['pink', 'brown', 'black', 'white', 'gray', 'gold'],
       ['silver', 'coral', 'teal', 'lime', 'navy', 'maroon'],
       ['tan', 'beige', 'ivory', 'peach', 'mint', 'rose'],
@@ -20,7 +20,7 @@ class DemoAIService {
       ['indigo', 'violet', 'scarlet', 'emerald', 'pearl', 'copper'],
     ],
     'food': [
-      ['apple', 'banana', 'orange', 'grape', 'berry', 'peach'],
+      ['apple', 'banana', 'mango', 'grape', 'berry', 'peach'],
       ['bread', 'milk', 'cheese', 'butter', 'egg', 'meat'],
       ['rice', 'pasta', 'pizza', 'soup', 'salad', 'cake'],
       ['cookie', 'candy', 'ice cream', 'juice', 'water', 'tea'],

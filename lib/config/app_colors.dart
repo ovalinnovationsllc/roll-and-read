@@ -18,7 +18,7 @@ class AppColors {
   
   // Status Colors
   static const Color success = Color(0xFF4CAF50);        // Green for success
-  static const Color warning = Color(0xFFFF9800);        // Orange for warnings
+  static const Color warning = mediumBlue;               // Medium blue for warnings
   static const Color error = Color(0xFFF44336);          // Red for errors
   static const Color info = mediumBlue;                  // Medium blue for info
   

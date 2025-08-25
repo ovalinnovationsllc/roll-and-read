@@ -2,6 +2,8 @@ import 'dart:convert';
 import '../models/user_model.dart';
 import '../models/game_session_model.dart';
 import '../utils/safe_print.dart';
+import 'firestore_service.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 // Conditional import for web-specific localStorage
 import 'session_service_web.dart' if (dart.library.io) 'session_service_mobile.dart' as platform;
@@ -55,6 +57,8 @@ class SessionService {
       }
     } catch (e) {
       safeError('Error loading game session: $e');
+      // Clear corrupted session data
+      await clearSession();
     }
     return null;
   }
@@ -145,23 +149,81 @@ class SessionService {
         return '/';
       }
 
+      // More aggressive check for any completed/cancelled games or games older than 24 hours
+      // Also validate against Firebase to ensure the game still exists
+      if (gameSession != null) {
+        final isOldGame = gameSession.endedAt != null && 
+                         DateTime.now().difference(gameSession.endedAt!).inHours > 24;
+        final isCompletedOrCancelled = gameSession.status == GameStatus.completed || 
+                                      gameSession.status == GameStatus.cancelled;
+        
+        // Check if game still exists in Firebase (handles cases where Firebase data was deleted)
+        bool gameExistsInFirebase = false;
+        try {
+          gameExistsInFirebase = await _checkGameExistsInFirebase(gameSession.gameId);
+        } catch (e) {
+          safePrint('❌ Error checking game existence in Firebase: $e');
+          gameExistsInFirebase = false; // Assume doesn't exist if error
+        }
+        
+        if (isCompletedOrCancelled || isOldGame || !gameExistsInFirebase) {
+          safePrint('🚨 Found stale/completed/deleted game session on app launch - clearing and going to home');
+          safePrint('🚨 Game ID: ${gameSession.gameId}, Status: ${gameSession.status}, Old: $isOldGame, ExistsInFirebase: $gameExistsInFirebase');
+          await clearSession();
+          return '/';
+        } else {
+          safePrint('✅ Found valid game session: ${gameSession.gameId}, Status: ${gameSession.status}');
+        }
+      }
+
       // If we have a saved route and valid session data, use it
       if (savedRoute != null && user != null) {
-        if (savedRoute.startsWith('/multiplayer-game') && gameSession != null) {
+        // Only restore multiplayer game if the game is actually active
+        if (savedRoute.startsWith('/multiplayer-game') && gameSession != null && 
+           (gameSession.status == GameStatus.inProgress || gameSession.status == GameStatus.waitingForPlayers)) {
+          safePrint('✅ Restoring active game session: ${gameSession.gameId}');
           return savedRoute;
         } else if (savedRoute.startsWith('/admin-dashboard') && user.isAdmin) {
+          // Teachers can always return to dashboard
+          safePrint('✅ Restoring teacher dashboard');
           return savedRoute;
-        } else if (savedRoute == '/game-join' || savedRoute == '/user-login') {
-          return savedRoute;
+        } else {
+          // If user has a saved game route but game is not active, clear the game session
+          if (savedRoute.startsWith('/multiplayer-game') && gameSession != null) {
+            safePrint('🧹 Clearing inactive game session for fresh start');
+            await platform.remove(_gameSessionKey);
+            await platform.remove(_currentRouteKey);
+          }
         }
+        // Don't restore other routes - let users start fresh from home
+        safePrint('🏠 Not restoring saved route, sending user to home page');
       }
 
       // Default to home page
       return '/';
     } catch (e) {
       safeError('Error determining initial route: $e');
-      // If there's any error, just go to home page
+      // If there's any error, clear session and go to home page
+      await clearSession();
       return '/';
+    }
+  }
+
+  // Helper method to check if a game exists in Firebase
+  static Future<bool> _checkGameExistsInFirebase(String gameId) async {
+    try {
+      if (!FirestoreService.isFirebaseReady) {
+        return false; // If Firebase isn't ready, assume game doesn't exist
+      }
+      
+      // Try to get the game document from Firestore directly
+      final FirebaseFirestore firestore = FirebaseFirestore.instance;
+      final gameDoc = await firestore.collection('gameSessions').doc(gameId.toUpperCase()).get();
+      
+      return gameDoc.exists;
+    } catch (e) {
+      safePrint('Error checking if game exists in Firebase: $e');
+      return false; // If there's an error, assume game doesn't exist
     }
   }
 }

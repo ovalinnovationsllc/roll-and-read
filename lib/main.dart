@@ -106,6 +106,7 @@ Future<void> _initializeApp() async {
     try {
       // Use Firebase-safe route determination
       final isFirebaseReady = FirestoreService.isFirebaseReady;
+      safePrint('🔥 Firebase ready status: $isFirebaseReady');
       initialRoute = await SessionService.getInitialRouteSafe(isFirebaseReady);
       safePrint('✅ Initial route (Firebase ready: $isFirebaseReady): $initialRoute');
     } catch (e) {
@@ -168,7 +169,6 @@ class MyApp extends StatelessWidget {
         '/user-login': (context) => const UserLoginPage(),
         '/game-join': (context) => const GameJoinPage(),
         '/admin-dashboard': (context) => const AdminDashboardWrapper(),
-        '/multiplayer-game': (context) => const MultiplayerGameWrapper(),
       },
       onGenerateRoute: (settings) {
         // Handle dynamic routes that need parameters
@@ -187,11 +187,18 @@ class MyApp extends StatelessWidget {
           // Get data from arguments
           final args = settings.arguments as Map<String, dynamic>?;
           if (args != null && args['user'] != null && args['gameSession'] != null) {
+            // Direct navigation with arguments (from game join)
             return MaterialPageRoute(
               builder: (context) => MultiplayerGamePage(
                 user: args['user'] as UserModel,
                 gameSession: args['gameSession'] as GameSessionModel,
               ),
+              settings: settings,
+            );
+          } else {
+            // No arguments provided - use session wrapper for restoration
+            return MaterialPageRoute(
+              builder: (context) => const MultiplayerGameWrapper(),
               settings: settings,
             );
           }
@@ -274,12 +281,19 @@ class MultiplayerGameWrapper extends StatelessWidget {
         
         final data = snapshot.data;
         if (data != null && data['user'] != null && data['gameSession'] != null) {
-          // Save current route
-          SessionService.saveCurrentRoute('/multiplayer-game');
-          return MultiplayerGamePage(
-            user: data['user'] as UserModel,
-            gameSession: data['gameSession'] as GameSessionModel,
-          );
+          try {
+            // Save current route
+            SessionService.saveCurrentRoute('/multiplayer-game');
+            return MultiplayerGamePage(
+              user: data['user'] as UserModel,
+              gameSession: data['gameSession'] as GameSessionModel,
+            );
+          } catch (e) {
+            safePrint('Error casting session data: $e');
+            // Clear corrupted session and redirect to landing
+            SessionService.clearSession();
+            return const LandingPage();
+          }
         }
         
         // If no valid session, redirect to home

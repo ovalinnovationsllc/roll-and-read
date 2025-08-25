@@ -217,7 +217,7 @@ No extra text, just the 6 comma-separated words.
     return [
       ['cat', 'dog', 'pig', 'cow', 'hen', 'fox'],
       ['run', 'hop', 'sit', 'jump', 'walk', 'skip'], 
-      ['red', 'blue', 'green', 'pink', 'yellow', 'orange'],
+      ['red', 'blue', 'green', 'pink', 'yellow', 'white'],
       ['mom', 'dad', 'sister', 'brother', 'baby', 'family'],
       ['one', 'two', 'three', 'four', 'five', 'six'],
       ['sun', 'moon', 'star', 'cloud', 'rain', 'snow'],

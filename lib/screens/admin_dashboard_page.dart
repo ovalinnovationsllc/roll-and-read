@@ -5,12 +5,15 @@ import 'dart:math';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import '../config/app_colors.dart';
 import '../models/user_model.dart';
-import '../models/game_session_model.dart';
 import '../services/firestore_service.dart';
-import '../services/game_session_service.dart';
-import '../services/game_state_service.dart';
 import '../services/ai_word_service.dart';
-import '../models/game_state_model.dart';
+import '../services/word_list_service.dart';
+import '../services/game_session_service.dart';
+import '../models/word_list_model.dart';
+import '../models/game_session_model.dart';
+import 'multiplayer_roll_and_read.dart';
+import 'roll_and_read_game.dart';
+import '../widgets/animated_dice.dart';
 
 class AdminDashboardPage extends StatefulWidget {
   final UserModel adminUser;
@@ -27,6 +30,16 @@ class AdminDashboardPage extends StatefulWidget {
 class _AdminDashboardPageState extends State<AdminDashboardPage> {
   Map<String, dynamic>? _statistics;
   bool _loadingStats = true;
+  
+  // Default word grid with child-friendly 4-6 character words
+  static const List<List<String>> defaultWordGrid = [
+    ['fish', 'bird', 'bear', 'frog', 'duck', 'lamb'],
+    ['jump', 'swim', 'ride', 'play', 'walk', 'sing'],
+    ['blue', 'pink', 'green', 'black', 'white', 'brown'],
+    ['happy', 'silly', 'quiet', 'brave', 'smart', 'kind'],
+    ['ball', 'book', 'cake', 'door', 'tree', 'house'],
+    ['smile', 'laugh', 'sleep', 'dream', 'dance', 'share'],
+  ];
   
   // User management state
   final TextEditingController _searchController = TextEditingController();
@@ -94,6 +107,9 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
           break;
         case 'games':
           comparison = a.gamesPlayed.compareTo(b.gamesPlayed);
+          break;
+        case 'won':
+          comparison = a.gamesWon.compareTo(b.gamesWon);
           break;
         case 'words':
           comparison = a.wordsCorrect.compareTo(b.wordsCorrect);
@@ -459,6 +475,126 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
     }
   }
 
+  void _showUserDetailsDialog(UserModel user, bool isTablet) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            CircleAvatar(
+              backgroundColor: user.isAdmin
+                  ? Colors.red.shade100
+                  : Colors.green.shade100,
+              child: Icon(
+                user.isAdmin
+                    ? Icons.admin_panel_settings
+                    : Icons.person,
+                color: user.isAdmin
+                    ? Colors.red.shade700
+                    : Colors.green.shade700,
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Text(
+                user.displayName,
+                style: const TextStyle(fontSize: 20),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+        content: SizedBox(
+          width: isTablet ? 500 : 350,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildDetailRow('Email', user.emailAddress),
+                _buildDetailRow('PIN', user.pin),
+                _buildDetailRow('Account Type', user.isAdmin ? 'Administrator' : 'Student'),
+                _buildDetailRow('Created', _formatDate(user.createdAt)),
+                const SizedBox(height: 16),
+                
+                // Only show game stats for non-admin users
+                if (!user.isAdmin) ...[
+                  const Divider(),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Game Statistics',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.primary,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  _buildDetailRow('Games Played', user.gamesPlayed.toString()),
+                  _buildDetailRow('Games Won', user.gamesWon.toString()),
+                  _buildDetailRow('Words Read Correctly', user.wordsCorrect.toString()),
+                  if (user.gamesPlayed > 0)
+                    _buildDetailRow('Win Rate', '${((user.gamesWon / user.gamesPlayed) * 100).toStringAsFixed(1)}%'),
+                  if (user.gamesPlayed > 0)
+                    _buildDetailRow('Average Words per Game', '${(user.wordsCorrect / user.gamesPlayed).toStringAsFixed(1)}'),
+                ],
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+          ElevatedButton.icon(
+            onPressed: () {
+              Navigator.pop(context);
+              _showEditUserDialog(user, isTablet);
+            },
+            icon: const Icon(Icons.edit, size: 18),
+            label: const Text('Edit'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.white,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDetailRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 120,
+            child: Text(
+              '$label:',
+              style: const TextStyle(
+                fontWeight: FontWeight.w500,
+                color: Colors.grey,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _formatDate(DateTime date) {
+    return '${date.month.toString().padLeft(2, '0')}/${date.day.toString().padLeft(2, '0')}/${date.year}';
+  }
+
   void _stopVoiceRecording() {
     _speech?.stop();
   }
@@ -753,7 +889,27 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
     bool isCreating = false;
     bool useAIWords = false;
     String selectedDifficulty = 'elementary';
-    int maxPlayers = 2; // Default to 2 players
+    int maxPlayers = 2;
+    WordListModel? selectedWordList;
+    List<WordListModel> availableWordLists = [];
+    bool loadingWordLists = false;
+    String wordListMode = 'default'; // 'default', 'existing', or 'new'
+
+    // Load existing word lists
+    void loadWordLists() async {
+      if (loadingWordLists) return;
+      loadingWordLists = true;
+      try {
+        final wordLists = await WordListService.getAllWordLists();
+        if (mounted) {
+          availableWordLists = wordLists;
+        }
+      } catch (e) {
+        print('Error loading word lists: $e');
+      }
+      loadingWordLists = false;
+    }
+
 
     showDialog(
       context: context,
@@ -773,26 +929,26 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
                     hintText: 'Reading Challenge 1',
                     prefixIcon: Icon(Icons.games),
                   ),
-                  // No validator - game name is optional
                 ),
                 const SizedBox(height: 16),
+                
                 // Player count selection
                 Row(
                   children: [
                     const Icon(Icons.group, color: Colors.grey),
                     const SizedBox(width: 12),
-                    const Text('Number of Players:'),
+                    const Text('Players:'),
                     const SizedBox(width: 16),
                     SegmentedButton<int>(
                       segments: const [
                         ButtonSegment<int>(
                           value: 1,
-                          label: Text('1 Player'),
+                          label: Text('1'),
                           icon: Icon(Icons.person),
                         ),
                         ButtonSegment<int>(
                           value: 2,
-                          label: Text('2 Players'),
+                          label: Text('2'),
                           icon: Icon(Icons.people),
                         ),
                       ],
@@ -806,21 +962,93 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
                   ],
                 ),
                 const SizedBox(height: 16),
-                SwitchListTile(
-                  title: const Text('Use AI Generated Words'),
-                  subtitle: Text(useAIWords 
-                      ? 'AI will create words based on your prompt'
-                      : 'Use default word grid'),
-                  value: useAIWords,
-                  onChanged: (value) {
+                
+                // Word list selection
+                const Text('Word List:', style: TextStyle(fontWeight: FontWeight.w500)),
+                const SizedBox(height: 8),
+                SegmentedButton<String>(
+                  segments: const [
+                    ButtonSegment<String>(
+                      value: 'default',
+                      label: Text('Default'),
+                    ),
+                    ButtonSegment<String>(
+                      value: 'existing',
+                      label: Text('Saved List'),
+                    ),
+                    ButtonSegment<String>(
+                      value: 'new',
+                      label: Text('Generate New'),
+                    ),
+                  ],
+                  selected: {wordListMode},
+                  onSelectionChanged: (Set<String> newSelection) {
                     setDialogState(() {
-                      useAIWords = value;
+                      wordListMode = newSelection.first;
+                      if (wordListMode == 'existing' && availableWordLists.isEmpty) {
+                        loadWordLists();
+                      }
                     });
                   },
-                  activeColor: Colors.blue.shade600,
                 ),
-                if (useAIWords) ...[
-                  const SizedBox(height: 16),
+                const SizedBox(height: 16),
+                
+                // Show appropriate controls based on selected mode
+                if (wordListMode == 'existing') ...[
+                  if (loadingWordLists)
+                    const CircularProgressIndicator()
+                  else if (availableWordLists.isEmpty) ...[
+                    const Text('No saved word lists found.'),
+                    TextButton(
+                      onPressed: () {
+                        setDialogState(() {
+                          loadWordLists();
+                        });
+                      },
+                      child: const Text('Refresh'),
+                    ),
+                  ] else ...[
+                    DropdownButtonFormField<WordListModel>(
+                      value: selectedWordList,
+                      decoration: const InputDecoration(
+                        labelText: 'Select Word List',
+                        prefixIcon: Icon(Icons.list),
+                      ),
+                      hint: const Text('Choose a saved word list'),
+                      items: availableWordLists
+                          .map((wordList) => DropdownMenuItem(
+                                value: wordList,
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      wordList.prompt,
+                                      style: const TextStyle(fontWeight: FontWeight.w500),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    Text(
+                                      '${wordList.difficulty.toUpperCase()} • Used ${wordList.timesUsed} times',
+                                      style: const TextStyle(fontSize: 12, color: Colors.grey),
+                                    ),
+                                  ],
+                                ),
+                              ))
+                          .toList(),
+                      onChanged: (value) {
+                        setDialogState(() {
+                          selectedWordList = value;
+                        });
+                      },
+                      validator: (value) {
+                        if (wordListMode == 'existing' && value == null) {
+                          return 'Please select a word list';
+                        }
+                        return null;
+                      },
+                    ),
+                  ],
+                ] else if (wordListMode == 'new') ...[
                   DropdownButtonFormField<String>(
                     value: selectedDifficulty,
                     decoration: const InputDecoration(
@@ -854,28 +1082,15 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
                             alignLabelWithHint: true,
                           ),
                           validator: (value) {
-                            // Only validate if AI words are enabled
-                            if (!useAIWords) return null;
-                            
-                            if (value == null || value.trim().isEmpty) {
+                            if (wordListMode == 'new' && (value == null || value.trim().isEmpty)) {
                               return 'Please enter a prompt for AI word generation';
                             }
-                            if (value.trim().length < 10) {
+                            if (wordListMode == 'new' && value != null && value.trim().length < 10) {
                               return 'Please provide a more detailed prompt';
                             }
                             return null;
                           },
                         ),
-                      ),
-                      const SizedBox(width: 8),
-                      Column(
-                        children: [
-                          const SizedBox(height: 16), // Align with text field
-                          _buildVoiceRecordButton(
-                            controller: wordPromptController,
-                            setDialogState: setDialogState,
-                          ),
-                        ],
                       ),
                     ],
                   ),
@@ -901,46 +1116,8 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
                           .toList(),
                     ),
                   ),
-                ],
-                const SizedBox(height: 16),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.blue.shade50,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.blue.shade200),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Icon(Icons.info_outline, color: Colors.blue.shade700, size: 16),
-                          const SizedBox(width: 8),
-                          Text(
-                            'Game Instructions:',
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              color: Colors.blue.shade700,
-                              fontSize: 14,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        '• A unique 6-character Game ID will be generated\n'
-                        '• Share the Game ID with students\n' 
-                        '• Up to ${maxPlayers == 1 ? "1 student" : "2 students"} can join this game\n'
-                        '• You can start the game once ${maxPlayers == 1 ? "the player joins" : "players join"}',
-                        style: TextStyle(
-                          color: Colors.blue.shade600,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+                ]
+                // Info section removed - simplified approach
               ],
             ),
           ),
@@ -953,11 +1130,8 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
               onPressed: isCreating 
                   ? null 
                   : () async {
-                      // Validate based on current state
-                      if (useAIWords) {
-                        // Only validate form if AI words are enabled
-                        if (!formKey.currentState!.validate()) return;
-                      }
+                      // Validate form based on selected mode
+                      if (!formKey.currentState!.validate()) return;
                       
                       setDialogState(() {
                         isCreating = true;
@@ -978,46 +1152,47 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
                           gameName = 'Game ${now.month}/${now.day} ${hour}:${now.minute.toString().padLeft(2, '0')} $period';
                         }
                         
-                        final gameSession = await GameSessionService.createGameSession(
-                          createdBy: widget.adminUser.id,
-                          gameName: gameName,
-                          useAIWords: useAIWords,
-                          aiPrompt: useAIWords ? wordPromptController.text.trim() : null,
-                          difficulty: useAIWords ? selectedDifficulty : null,
-                          maxPlayers: maxPlayers,
-                        );
+                        List<List<String>> wordGrid = [];
+                        
+                        // Get word grid based on selected mode
+                        if (wordListMode == 'default') {
+                          // Use default word grid
+                          wordGrid = defaultWordGrid;
+                        } else if (wordListMode == 'existing') {
+                          // Use selected existing word list
+                          wordGrid = selectedWordList!.wordGrid;
+                          // Increment usage count
+                          await WordListService.incrementUsageCount(selectedWordList!.id);
+                        } else {
+                          // Generate new AI words
+                          final prompt = wordPromptController.text.trim();
+                          wordGrid = await AIWordService.generateWordGrid(
+                            prompt: prompt,
+                            difficulty: selectedDifficulty,
+                          );
+                          
+                          // Save the new word list to Firebase for future use
+                          final wordListModel = WordListModel.create(
+                            prompt: prompt,
+                            difficulty: selectedDifficulty,
+                            wordGrid: wordGrid,
+                            createdBy: widget.adminUser.id,
+                          );
+                          await WordListService.saveWordList(wordListModel);
+                        }
                         
                         if (mounted) {
                           Navigator.pop(context);
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text('Game "${gameSession.gameName}" created!\nGame ID: ${gameSession.gameId}'),
-                              backgroundColor: Colors.green,
-                              duration: const Duration(seconds: 8),
-                              action: SnackBarAction(
-                                label: 'COPY ID',
-                                textColor: Colors.white,
-                                onPressed: () {
-                                  Clipboard.setData(ClipboardData(text: gameSession.gameId));
-                                  if (mounted) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(
-                                        content: Text('Game ID ${gameSession.gameId} copied to clipboard!'),
-                                        duration: const Duration(seconds: 2),
-                                        backgroundColor: Colors.blue,
-                                      ),
-                                    );
-                                  }
-                                },
-                              ),
-                            ),
-                          );
-                          // Games list will update automatically via StreamBuilder
+                          
+                          // Create game session that students can join
+                          await _createGameSession(gameName, wordGrid, maxPlayers, wordListMode == 'new', wordListMode);
                         }
                       } catch (e) {
                         print('Error creating game: $e');
                         if (mounted) {
-                          Navigator.pop(context);
+                          setDialogState(() {
+                            isCreating = false;
+                          });
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
                               content: Text('Error creating game: ${e.toString()}'),
@@ -1042,92 +1217,23 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
     );
   }
 
-  Future<void> _startGame(GameSessionModel game) async {
-    try {
-      await GameSessionService.startGameSession(game.gameId);
-      // Games list will update automatically via StreamBuilder
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Game "${game.gameName}" has been started!'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error starting game: ${e.toString().replaceFirst('Exception: ', '')}'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
-  }
-
-  Future<void> _deleteGame(GameSessionModel game) async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Delete Game'),
-        content: Text('Are you sure you want to delete "${game.gameName}"?\n\nThis action cannot be undone.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.error,
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirm == true) {
-      try {
-        await GameSessionService.deleteGameSession(game.gameId);
-        // Games list will update automatically via StreamBuilder
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Game "${game.gameName}" deleted'),
-              backgroundColor: AppColors.mediumBlue,
-            ),
-          );
-        }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Error deleting game'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-      }
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
-    final isTablet = MediaQuery.of(context).size.shortestSide >= 600;
-
+    final isTablet = MediaQuery.of(context).size.width > 600;
+    
     return Scaffold(
       backgroundColor: AppColors.adminBackground,
       appBar: AppBar(
-        title: const Text('Teacher Dashboard'),
+        title: const Text(
+          "Teacher Dashboard",
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
         backgroundColor: AppColors.adminPrimary,
         foregroundColor: AppColors.onPrimary,
         elevation: 0,
         actions: [
           IconButton(
-            icon: const Icon(Icons.add_box),
+            icon: const Icon(Icons.add),
             onPressed: () => _showCreateGameDialog(),
             tooltip: 'Create Game',
           ),
@@ -1209,21 +1315,6 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
             ),
           ),
 
-          // Pending Pronunciations Section - Always at top for immediate visibility
-          StreamBuilder<List<GameSessionModel>>(
-            stream: GameSessionService.listenToGamesByAdmin(widget.adminUser.id),
-            builder: (context, gamesSnapshot) {
-              if (!gamesSnapshot.hasData) return const SizedBox.shrink();
-              
-              final activeGames = gamesSnapshot.data!
-                  .where((game) => game.status == GameStatus.inProgress)
-                  .toList();
-              
-              if (activeGames.isEmpty) return const SizedBox.shrink();
-              
-              return _buildGlobalPronunciationsSection(activeGames, isTablet);
-            },
-          ),
           
           // Games Section Header  
           Padding(
@@ -1253,7 +1344,7 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
 
           // Games List with real-time updates
           SizedBox(
-            height: 200, // Fixed height for games section
+            height: 200,
             child: StreamBuilder<List<GameSessionModel>>(
               stream: GameSessionService.listenToGamesByAdmin(widget.adminUser.id),
               builder: (context, snapshot) {
@@ -1280,7 +1371,13 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
                   );
                 }
 
-                final games = snapshot.data ?? [];
+                final allGames = snapshot.data ?? [];
+                
+                // Filter to only show active games (waiting for players or in progress)
+                final games = allGames.where((game) => 
+                  game.status == GameStatus.waitingForPlayers || 
+                  game.status == GameStatus.inProgress
+                ).toList();
 
                 if (games.isEmpty) {
                   return Center(
@@ -1289,14 +1386,8 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(
-                            Icons.games_outlined,
-                            size: isTablet ? 48 : 40,
-                            color: Colors.grey.shade400,
-                          ),
-                          const SizedBox(height: 8),
                           Text(
-                            'No games created yet',
+                            allGames.isEmpty ? 'No games created yet' : 'No active games',
                             style: TextStyle(
                               fontSize: isTablet ? 16 : 14,
                               color: Colors.grey.shade600,
@@ -1419,6 +1510,7 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
                           DropdownMenuItem(value: 'email', child: Text('Email')),
                           DropdownMenuItem(value: 'created', child: Text('Date Created')),
                           DropdownMenuItem(value: 'games', child: Text('Games Played')),
+                          DropdownMenuItem(value: 'won', child: Text('Games Won')),
                           DropdownMenuItem(value: 'words', child: Text('Words Read')),
                         ],
                         onChanged: (value) {
@@ -1590,6 +1682,7 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
                           return Card(
                             margin: const EdgeInsets.only(bottom: 8),
                             child: ListTile(
+                              onTap: () => _showUserDetailsDialog(user, isTablet),
                               leading: CircleAvatar(
                                 backgroundColor: user.isAdmin
                                     ? Colors.red.shade100
@@ -1620,32 +1713,51 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
                                     ),
                                   ),
                                   const SizedBox(height: 4),
-                                  Row(
-                                    children: [
-                                      Text(
-                                        'Games: ${user.gamesPlayed}',
-                                        style: TextStyle(
-                                          fontSize: isTablet ? 12 : 10,
-                                          color: Colors.grey.shade600,
-                                        ),
+                                  if (user.isAdmin) 
+                                    Text(
+                                      'Administrator Account',
+                                      style: TextStyle(
+                                        fontSize: isTablet ? 12 : 10,
+                                        color: Colors.red.shade600,
+                                        fontWeight: FontWeight.w500,
                                       ),
-                                      const SizedBox(width: 16),
-                                      Text(
-                                        'Words: ${user.wordsCorrect}',
-                                        style: TextStyle(
-                                          fontSize: isTablet ? 12 : 10,
-                                          color: Colors.grey.shade600,
+                                    )
+                                  else
+                                    Row(
+                                      children: [
+                                        Text(
+                                          'Games: ${user.gamesPlayed}',
+                                          style: TextStyle(
+                                            fontSize: isTablet ? 12 : 10,
+                                            color: Colors.grey.shade600,
+                                          ),
                                         ),
-                                      ),
-                                    ],
-                                  ),
+                                        const SizedBox(width: 12),
+                                        Text(
+                                          'Won: ${user.gamesWon}',
+                                          style: TextStyle(
+                                            fontSize: isTablet ? 12 : 10,
+                                            color: Colors.green.shade600,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 12),
+                                        Text(
+                                          'Words: ${user.wordsCorrect}',
+                                          style: TextStyle(
+                                            fontSize: isTablet ? 12 : 10,
+                                            color: Colors.grey.shade600,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
                                 ],
                               ),
                               trailing: PopupMenuButton<String>(
                                 onSelected: (value) async {
                                   switch (value) {
                                     case 'view':
-                                      _showUserDetails(user, isTablet);
+                                      _showUserDetailsDialog(user, isTablet);
                                       break;
                                     case 'edit':
                                       _showEditUserDialog(user, isTablet);
@@ -1689,9 +1801,6 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
                                 ],
                                 icon: const Icon(Icons.more_vert),
                               ),
-                              onTap: () {
-                                _showUserDetails(user, isTablet);
-                              },
                             ),
                           );
                         },
@@ -1705,6 +1814,37 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
         ],
       ),
     );
+  }
+
+  Future<void> _createGameSession(String gameName, List<List<String>> wordGrid, int maxPlayers, bool useAIWords, String wordListMode) async {
+    try {
+      final gameSession = await GameSessionService.createGameSession(
+        createdBy: widget.adminUser.id,
+        gameName: gameName,
+        useAIWords: useAIWords,
+        wordGrid: wordGrid,
+        maxPlayers: maxPlayers,
+      );
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Game "${gameName}" created! Game ID: ${gameSession.gameId}'),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error creating game: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   Widget _buildGameCard(GameSessionModel game, bool isTablet) {
@@ -1723,24 +1863,17 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
         statusText = 'In Progress';
         statusIcon = Icons.play_circle;
         break;
-      case GameStatus.completed:
-        statusColor = Colors.blue;
-        statusText = 'Completed';
-        statusIcon = Icons.check_circle;
-        break;
-      case GameStatus.cancelled:
-        statusColor = Colors.red;
-        statusText = 'Cancelled';
-        statusIcon = Icons.cancel;
-        break;
+      default:
+        statusColor = Colors.grey;
+        statusText = 'Unknown';
+        statusIcon = Icons.help;
     }
 
     return Card(
-      margin: const EdgeInsets.only(bottom: 8),
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      elevation: 2,
       child: InkWell(
-        onTap: () {
-          _showGameDetailsDialog(game, isTablet);
-        },
+        onTap: () => _launchGameboard(game),
         borderRadius: BorderRadius.circular(8),
         child: Padding(
           padding: const EdgeInsets.all(12),
@@ -1763,97 +1896,62 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            game.gameName,
-                            style: TextStyle(
-                              fontSize: isTablet ? 16 : 14,
-                              fontWeight: FontWeight.w600,
-                            ),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        GestureDetector(
-                          onTap: () {
-                            Clipboard.setData(ClipboardData(text: game.gameId));
-                            if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text('Game ID ${game.gameId} copied!'),
-                                  duration: const Duration(seconds: 2),
-                                  backgroundColor: Colors.blue,
-                                ),
-                              );
-                            }
-                          },
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: Colors.blue.shade100,
-                              borderRadius: BorderRadius.circular(4),
-                              border: Border.all(color: Colors.blue.shade200),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(
-                                  game.gameId,
-                                  style: TextStyle(
-                                    fontSize: isTablet ? 12 : 10,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.blue.shade700,
-                                  ),
-                                ),
-                                const SizedBox(width: 3),
-                                Icon(
-                                  Icons.copy,
-                                  size: isTablet ? 12 : 10,
-                                  color: Colors.blue.shade600,
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ],
+                    Text(
+                      game.gameName,
+                      style: TextStyle(
+                        fontSize: isTablet ? 16 : 14,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.grey.shade800,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                     const SizedBox(height: 4),
-                    Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: statusColor.withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: Text(
-                            statusText,
-                            style: TextStyle(
-                              fontSize: isTablet ? 12 : 10,
-                              color: statusColor,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        if (game.players.isNotEmpty)
-                          Text(
-                            game.players.map((p) => p.displayName).join(', '),
-                            style: TextStyle(
-                              fontSize: isTablet ? 12 : 10,
-                              color: Colors.grey.shade600,
-                            ),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                      ],
+                    Text(
+                      'ID: ${game.gameId}',
+                      style: TextStyle(
+                        fontSize: isTablet ? 12 : 11,
+                        color: Colors.grey.shade600,
+                        fontFamily: 'monospace',
+                      ),
                     ),
                   ],
                 ),
               ),
-              Icon(
-                Icons.chevron_right,
-                color: Colors.grey.shade400,
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: statusColor.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          statusText,
+                          style: TextStyle(
+                            fontSize: isTablet ? 12 : 11,
+                            fontWeight: FontWeight.w500,
+                            color: statusColor,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      IconButton(
+                        onPressed: () => _deleteGame(game),
+                        icon: const Icon(Icons.delete_outline),
+                        color: Colors.red.shade600,
+                        tooltip: 'Delete Game',
+                        constraints: const BoxConstraints(),
+                        padding: const EdgeInsets.all(4),
+                        iconSize: isTablet ? 20 : 18,
+                      ),
+                    ],
+                  ),
+                ],
               ),
             ],
           ),
@@ -1862,509 +1960,90 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
     );
   }
 
-  void _showGameDetailsDialog(GameSessionModel game, bool isTablet) {
-    showDialog(
-      context: context,
-      builder: (context) => StreamBuilder<GameSessionModel?>(
-        stream: GameSessionService.listenToGameSession(game.gameId),
-        initialData: game,
-        builder: (context, snapshot) {
-          final currentGame = snapshot.data ?? game;
-          
-          return AlertDialog(
-            title: Row(
-              children: [
-                Expanded(child: Text(currentGame.gameName)),
-                GestureDetector(
-                  onTap: () {
-                    Clipboard.setData(ClipboardData(text: currentGame.gameId));
-                    if (mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text('Game ID ${currentGame.gameId} copied to clipboard!'),
-                          duration: const Duration(seconds: 2),
-                          backgroundColor: Colors.blue,
-                        ),
-                      );
-                    }
-                  },
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: Colors.blue.shade100,
-                      borderRadius: BorderRadius.circular(4),
-                      border: Border.all(color: Colors.blue.shade300),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          currentGame.gameId,
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.blue.shade700,
-                          ),
-                        ),
-                        const SizedBox(width: 4),
-                        Icon(
-                          Icons.copy,
-                          size: 14,
-                          color: Colors.blue.shade700,
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
+  void _launchGameboard(GameSessionModel game) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => Scaffold(
+          backgroundColor: Colors.white,
+          appBar: AppBar(
+            title: Text('Teacher View: ${game.gameName}'),
+            backgroundColor: AppColors.adminPrimary,
+            foregroundColor: AppColors.onPrimary,
+            leading: IconButton(
+              icon: const Icon(Icons.arrow_back),
+              onPressed: () => Navigator.pop(context),
             ),
-            content: SizedBox(
-              width: isTablet ? 500 : 300,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Status: ${currentGame.status.toString().split('.').last}'),
-                  Text('Max Players: ${currentGame.maxPlayers}'),
-                  Text('Current Players: ${currentGame.players.length}/${currentGame.maxPlayers}'),
-                  if (currentGame.players.isNotEmpty) ...[
-                    const SizedBox(height: 8),
-                    Text('Players:', style: TextStyle(fontWeight: FontWeight.bold)),
-                    ...currentGame.players.map((player) => Padding(
-                      padding: const EdgeInsets.only(left: 16, top: 4),
-                      child: Text('• ${player.displayName}'),
-                    )).toList(),
-                  ],
-                  
-                  // Show pending pronunciations for active games
-                  if (currentGame.status == GameStatus.inProgress) ...[
-                    const SizedBox(height: 16),
-                    _buildPronunciationSection(currentGame),
-                  ],
-                  
-                  const SizedBox(height: 8),
-                  Text('Created: ${_formatDateTime(currentGame.createdAt)}'),
-                  if (currentGame.startedAt != null)
-                    Text('Started: ${_formatDateTime(currentGame.startedAt!)}'),
-                ],
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Close'),
-              ),
-              if (currentGame.status == GameStatus.waitingForPlayers && currentGame.players.isNotEmpty)
-                ElevatedButton(
-                  onPressed: () {
-                    Navigator.pop(context);
-                    _startGame(currentGame);
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.green.shade600,
-                    foregroundColor: Colors.white,
-                  ),
-                  child: const Text('Start Game'),
-                ),
-              if (currentGame.status == GameStatus.waitingForPlayers || currentGame.status == GameStatus.inProgress)
-                ElevatedButton(
-                  onPressed: () {
-                    Navigator.pop(context);
-                    _deleteGame(currentGame);
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.error,
-                    foregroundColor: Colors.white,
-                  ),
-                  child: const Text('Delete'),
-                ),
-            ],
-          );
-        },
+          ),
+          body: MultiplayerRollAndRead(
+            user: widget.adminUser,
+            gameSession: game,
+            isTeacherMode: true,
+          ),
+        ),
       ),
     );
   }
 
-  Widget _buildStatCard(
-    String title,
-    String value,
-    IconData icon,
-    Color color,
-    bool isTablet,
-  ) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.05),
-              blurRadius: 10,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
-        child: Column(
+  Future<void> _deleteGame(GameSessionModel game) async {
+    // Show confirmation dialog
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Game'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Icon(
-                  icon,
-                  color: color,
-                  size: isTablet ? 28 : 24,
-                ),
-                Text(
-                  value,
-                  style: TextStyle(
-                    fontSize: isTablet ? 24 : 20,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.grey.shade800,
-                  ),
-                ),
-              ],
-            ),
+            Text('Are you sure you want to delete "${game.gameName}"?'),
             const SizedBox(height: 8),
             Text(
-              title,
+              'Game ID: ${game.gameId}',
               style: TextStyle(
-                fontSize: isTablet ? 14 : 12,
+                fontFamily: 'monospace',
                 color: Colors.grey.shade600,
               ),
             ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _showUserDetails(UserModel user, bool isTablet) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Row(
-          children: [
-            Icon(
-              user.isAdmin ? Icons.admin_panel_settings : Icons.person,
-              color: user.isAdmin ? Colors.red.shade700 : Colors.green.shade700,
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                user.displayName,
-                style: TextStyle(fontSize: isTablet ? 20 : 18),
-              ),
-            ),
-          ],
-        ),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // User Info Section
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade50,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'User Information',
-                      style: TextStyle(
-                        fontSize: isTablet ? 16 : 14,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.grey.shade800,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    _buildDetailRow('Email', user.emailAddress, isTablet),
-                    _buildDetailRow('PIN', user.pin, isTablet),
-                    _buildDetailRow('Role', user.isAdmin ? 'Teacher' : 'Student', isTablet),
-                    _buildDetailRow(
-                      'Member Since',
-                      _formatDateTime(user.createdAt),
-                      isTablet,
-                    ),
-                  ],
+            if (game.players.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text(
+                'This will remove ${game.players.length} player(s) from the game.',
+                style: TextStyle(
+                  color: AppColors.warning,
+                  fontWeight: FontWeight.w500,
                 ),
               ),
-              
-              const SizedBox(height: 16),
-              
-              // Gaming Statistics Section
-              if (!user.isAdmin) ...[
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.blue.shade50,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.bar_chart,
-                            size: isTablet ? 20 : 18,
-                            color: Colors.blue.shade700,
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            'Gaming Statistics',
-                            style: TextStyle(
-                              fontSize: isTablet ? 16 : 14,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.blue.shade700,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: _buildStatBox(
-                              'Games Played',
-                              user.gamesPlayed.toString(),
-                              Icons.videogame_asset,
-                              Colors.green,
-                              isTablet,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: _buildStatBox(
-                              'Games Won',
-                              user.gamesWon.toString(),
-                              Icons.emoji_events,
-                              AppColors.mediumBlue,
-                              isTablet,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: _buildStatBox(
-                              'Words Read',
-                              user.wordsCorrect.toString(),
-                              Icons.abc,
-                              Colors.purple,
-                              isTablet,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: _buildStatBox(
-                              'Win Rate',
-                              user.gamesPlayed > 0 
-                                ? '${(user.gamesWon / user.gamesPlayed * 100).toStringAsFixed(1)}%'
-                                : '0%',
-                              Icons.trending_up,
-                              Colors.red,
-                              isTablet,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ] else ...[
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.red.shade50,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.admin_panel_settings,
-                        color: Colors.red.shade600,
-                        size: isTablet ? 24 : 20,
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          'This user has administrator privileges and can create games and manage users.',
-                          style: TextStyle(
-                            fontSize: isTablet ? 14 : 12,
-                            color: AppColors.adminPrimary,
-                            fontStyle: FontStyle.italic,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
             ],
-          ),
+          ],
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Delete'),
           ),
         ],
       ),
     );
-  }
 
-  Widget _buildDetailRow(String label, String value, bool isTablet) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            '$label: ',
-            style: TextStyle(
-              fontWeight: FontWeight.w600,
-              fontSize: isTablet ? 15 : 13,
-              color: Colors.grey.shade700,
-            ),
-          ),
-          Expanded(
-            child: Text(
-              value,
-              style: TextStyle(
-                fontSize: isTablet ? 15 : 13,
-                color: Colors.grey.shade600,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+    if (confirmed != true) return;
 
-  String _formatDateTime(DateTime dateTime) {
-    int hour = dateTime.hour;
-    String period = 'AM';
-    if (hour >= 12) {
-      period = 'PM';
-      if (hour > 12) hour -= 12;
-    }
-    if (hour == 0) hour = 12;
-    
-    return '${dateTime.month}/${dateTime.day}/${dateTime.year} ${hour}:${dateTime.minute.toString().padLeft(2, '0')} $period';
-  }
-
-  
-  Widget _buildPronunciationSection(GameSessionModel game) {
-    return StreamBuilder<GameStateModel?>(
-      stream: GameStateService.getGameStateStream(game.gameId),
-      builder: (context, snapshot) {
-        if (!snapshot.hasData) {
-          return const SizedBox.shrink();
-        }
-        
-        final gameState = snapshot.data!;
-        final pendingPronunciations = gameState.pendingPronunciations;
-        
-        if (pendingPronunciations.isEmpty) {
-          return const SizedBox.shrink();
-        }
-        
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Pending Pronunciations:',
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                color: Colors.purple.shade700,
-              ),
-            ),
-            const SizedBox(height: 8),
-            ...pendingPronunciations.entries.map((entry) {
-              final cellKey = entry.key;
-              final attempt = entry.value;
-              
-              return Container(
-                margin: const EdgeInsets.only(bottom: 8),
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.purple.shade50,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.purple.shade200),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '${attempt.playerName} → "${attempt.word}"',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w600,
-                        fontSize: 14,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                      children: [
-                        Expanded(
-                          child: ElevatedButton.icon(
-                            onPressed: () => _approvePronunciation(game.gameId, cellKey, game.playerIds),
-                            icon: const Icon(Icons.check, size: 16),
-                            label: const Text('Correct'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.green.shade600,
-                              foregroundColor: AppColors.onPrimary,
-                              padding: const EdgeInsets.symmetric(vertical: 8),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: ElevatedButton.icon(
-                            onPressed: () => _rejectPronunciation(game.gameId, cellKey, game.playerIds),
-                            icon: const Icon(Icons.close, size: 16),
-                            label: const Text('Wrong'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: AppColors.error,
-                              foregroundColor: AppColors.onPrimary,
-                              padding: const EdgeInsets.symmetric(vertical: 8),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              );
-            }).toList(),
-          ],
-        );
-      },
-    );
-  }
-  
-  Future<void> _approvePronunciation(String gameId, String cellKey, List<String> playerIds) async {
     try {
-      await GameStateService.approvePronunciation(
-        gameId: gameId, 
-        cellKey: cellKey, 
-        playerIds: playerIds,
-      );
+      // Delete the game session
+      await GameSessionService.deleteGameSession(game.gameId);
+      
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Pronunciation approved!'),
+          SnackBar(
+            content: Text('Game "${game.gameName}" deleted successfully'),
             backgroundColor: Colors.green,
-            duration: Duration(seconds: 2),
           ),
         );
       }
@@ -2372,325 +2051,12 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error: ${e.toString()}'),
-            backgroundColor: Colors.red,
-            duration: const Duration(seconds: 3),
-          ),
-        );
-      }
-    }
-  }
-  
-  Future<void> _rejectPronunciation(String gameId, String cellKey, List<String> playerIds) async {
-    try {
-      await GameStateService.rejectPronunciation(
-        gameId: gameId, 
-        cellKey: cellKey, 
-        playerIds: playerIds,
-      );
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Pronunciation rejected.'),
-            backgroundColor: AppColors.mediumBlue,
-            duration: Duration(seconds: 2),
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: ${e.toString()}'),
-            backgroundColor: Colors.red,
-            duration: const Duration(seconds: 3),
+            content: Text('Error deleting game: ${e.toString().replaceFirst('Exception: ', '')}'),
+            backgroundColor: AppColors.error,
           ),
         );
       }
     }
   }
 
-  Widget _buildStatBox(String label, String value, IconData icon, Color color, bool isTablet) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: color.withOpacity(0.3)),
-      ),
-      child: Column(
-        children: [
-          Icon(
-            icon,
-            size: isTablet ? 24 : 20,
-            color: color,
-          ),
-          const SizedBox(height: 8),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: isTablet ? 20 : 16,
-              fontWeight: FontWeight.bold,
-              color: color,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: isTablet ? 12 : 10,
-              color: Colors.grey.shade600,
-            ),
-            textAlign: TextAlign.center,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildGlobalPronunciationsSection(List<GameSessionModel> activeGames, bool isTablet) {
-    return StreamBuilder<List<GameStateModel?>>(
-      stream: _combineGameStateStreams(activeGames),
-      builder: (context, snapshot) {
-        if (!snapshot.hasData) return const SizedBox.shrink();
-        
-        // Collect all pending pronunciations from all games
-        final allPendingPronunciations = <Map<String, dynamic>>[];
-        
-        for (int i = 0; i < activeGames.length; i++) {
-          final gameState = snapshot.data![i];
-          if (gameState != null && gameState.pendingPronunciations.isNotEmpty) {
-            gameState.pendingPronunciations.forEach((cellKey, attempt) {
-              allPendingPronunciations.add({
-                'game': activeGames[i],
-                'cellKey': cellKey,
-                'attempt': attempt,
-              });
-            });
-          }
-        }
-        
-        if (allPendingPronunciations.isEmpty) return const SizedBox.shrink();
-        
-        return Container(
-          margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Colors.red.shade50,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.red.shade200, width: 2),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.red.shade100,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Icon(
-                      Icons.priority_high,
-                      color: Colors.red.shade700,
-                      size: isTablet ? 24 : 20,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Pronunciation Approvals Needed',
-                          style: TextStyle(
-                            fontSize: isTablet ? 18 : 16,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.red.shade700,
-                          ),
-                        ),
-                        Text(
-                          '${allPendingPronunciations.length} student${allPendingPronunciations.length == 1 ? '' : 's'} waiting for your decision',
-                          style: TextStyle(
-                            fontSize: isTablet ? 14 : 12,
-                            color: Colors.red.shade600,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              ...allPendingPronunciations.map((data) {
-                final game = data['game'] as GameSessionModel;
-                final cellKey = data['cellKey'] as String;
-                final attempt = data['attempt'] as PronunciationAttempt;
-                
-                return Container(
-                  margin: const EdgeInsets.only(bottom: 12),
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.red.shade200),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  '${attempt.playerName} → "${attempt.word}"',
-                                  style: TextStyle(
-                                    fontSize: isTablet ? 16 : 14,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.grey.shade800,
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                  decoration: BoxDecoration(
-                                    color: Colors.blue.shade100,
-                                    borderRadius: BorderRadius.circular(4),
-                                  ),
-                                  child: Text(
-                                    'Game: ${game.gameName}',
-                                    style: TextStyle(
-                                      fontSize: isTablet ? 12 : 10,
-                                      color: Colors.blue.shade700,
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: ElevatedButton.icon(
-                              onPressed: () => _approvePronunciation(game.gameId, cellKey, game.playerIds),
-                              icon: const Icon(Icons.check, size: 18),
-                              label: const Text('Correct'),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.green.shade600,
-                                foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(vertical: 12),
-                                textStyle: TextStyle(
-                                  fontSize: isTablet ? 16 : 14,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: ElevatedButton.icon(
-                              onPressed: () => _rejectPronunciation(game.gameId, cellKey, game.playerIds),
-                              icon: const Icon(Icons.close, size: 18),
-                              label: const Text('Wrong'),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.red.shade600,
-                                foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(vertical: 12),
-                                textStyle: TextStyle(
-                                  fontSize: isTablet ? 16 : 14,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                );
-              }).toList(),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  Stream<List<GameStateModel?>> _combineGameStateStreams(List<GameSessionModel> games) {
-    if (games.isEmpty) {
-      return Stream.value([]);
-    }
-    
-    final streams = games.map((game) => 
-      GameStateService.getGameStateStream(game.gameId)
-    ).toList();
-    
-    return Stream.periodic(const Duration(milliseconds: 500), (i) => null)
-        .asyncMap((_) async {
-          final futures = streams.map((stream) => stream.first).toList();
-          return await Future.wait(futures);
-        });
-  }
-
-  Widget _buildVoiceRecordButton({
-    required TextEditingController controller,
-    required Function(VoidCallback) setDialogState,
-  }) {
-    return StatefulBuilder(
-      builder: (context, setState) {
-        bool isRecording = false;
-        
-        return Container(
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: isRecording 
-                ? Colors.red.withOpacity(0.1)
-                : AppColors.gamePrimary.withOpacity(0.1),
-          ),
-          child: IconButton(
-            onPressed: () async {
-              if (!isRecording) {
-                await _startVoiceRecording(
-                  controller: controller,
-                  onResult: (text) {
-                    setDialogState(() {
-                      // Text already set in controller by onResult callback
-                    });
-                  },
-                  onStart: () {
-                    setState(() {
-                      isRecording = true;
-                    });
-                  },
-                  onStop: () {
-                    setState(() {
-                      isRecording = false;
-                    });
-                  },
-                );
-              } else {
-                _stopVoiceRecording();
-                setState(() {
-                  isRecording = false;
-                });
-              }
-            },
-            icon: Icon(
-              isRecording ? Icons.stop : Icons.mic,
-              color: isRecording ? Colors.red : AppColors.gamePrimary,
-              size: 24,
-            ),
-            tooltip: isRecording ? 'Stop Recording' : 'Voice Input',
-          ),
-        );
-      },
-    );
-  }
 }
