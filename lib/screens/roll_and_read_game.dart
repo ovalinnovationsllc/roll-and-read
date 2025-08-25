@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'dart:math';
+import 'package:flutter_tts/flutter_tts.dart';
+import '../config/app_colors.dart';
 import '../widgets/animated_dice.dart';
 import '../services/datamuse_service.dart';
 import '../models/user_model.dart';
 import '../models/game_session_model.dart';
+import '../services/sound_service.dart';
 
 class RollAndReadGame extends StatefulWidget {
   final UserModel? user;
@@ -26,6 +29,7 @@ class _RollAndReadGameState extends State<RollAndReadGame> {
   bool _canRoll = true;
   bool _hasRolled = false;
   bool _isLoadingWords = false;
+  late FlutterTts _flutterTts;
   
   // Track which cells have been selected/completed
   final Set<String> _completedCells = {};
@@ -37,9 +41,32 @@ class _RollAndReadGameState extends State<RollAndReadGame> {
   void initState() {
     super.initState();
     _initializeGrid();
+    _initializeTts();
     // Only load long U words if we're not using AI-generated words
     if (widget.gameSession == null || !widget.gameSession!.useAIWords) {
       _loadLongUWords();
+    }
+  }
+
+  void _initializeTts() {
+    _flutterTts = FlutterTts();
+    _flutterTts.setLanguage("en-US");
+    _flutterTts.setSpeechRate(0.5); // Slower speech for young learners
+    _flutterTts.setVolume(1.0);
+    _flutterTts.setPitch(1.0);
+  }
+
+  @override
+  void dispose() {
+    _flutterTts.stop();
+    super.dispose();
+  }
+
+  Future<void> _speakWord(String word) async {
+    try {
+      await _flutterTts.speak(word);
+    } catch (e) {
+      print('Error speaking word: $e');
     }
   }
 
@@ -107,6 +134,9 @@ class _RollAndReadGameState extends State<RollAndReadGame> {
     // Only allow marking cells in the column that matches the current dice value
     if (col + 1 != _diceValue || _isRolling) return;
     
+    // Play word selection sound
+    SoundService.playWordSelect();
+    
     final cellKey = '$row-$col';
     setState(() {
       if (_completedCells.contains(cellKey)) {
@@ -135,7 +165,7 @@ class _RollAndReadGameState extends State<RollAndReadGame> {
     final screenHeight = MediaQuery.of(context).size.height;
     
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: AppColors.gameBackground,
       appBar: AppBar(
         title: const Text(
           "Mrs. Elson's Roll and Read",
@@ -144,8 +174,8 @@ class _RollAndReadGameState extends State<RollAndReadGame> {
             fontSize: 24,
           ),
         ),
-        backgroundColor: Colors.green.shade600,
-        foregroundColor: Colors.white,
+        backgroundColor: AppColors.gamePrimary,
+        foregroundColor: AppColors.onPrimary,
         elevation: 4,
         actions: [
           IconButton(
@@ -161,7 +191,7 @@ class _RollAndReadGameState extends State<RollAndReadGame> {
             // Dice rolling section
             Container(
               padding: const EdgeInsets.symmetric(vertical: 20),
-              color: Colors.green.shade50,
+              color: AppColors.gameBackground,
               child: Center(
                 child: AnimatedDice(
                   value: _diceValue,
@@ -176,13 +206,13 @@ class _RollAndReadGameState extends State<RollAndReadGame> {
             if (!_isRolling && _hasRolled)
               Container(
                 padding: const EdgeInsets.all(10),
-                color: Colors.amber.shade100,
+                color: AppColors.mediumBlue.withOpacity(0.1),
                 child: Text(
                   'You rolled a $_diceValue! Pick a word to read in column $_diceValue',
                   style: TextStyle(
                     fontSize: isTablet ? 18 : 16,
                     fontWeight: FontWeight.bold,
-                    color: Colors.amber.shade900,
+                    color: AppColors.darkBlue,
                   ),
                 ),
               ),
@@ -197,8 +227,8 @@ class _RollAndReadGameState extends State<RollAndReadGame> {
                     Container(
                       height: isTablet ? 70 : 60,
                       decoration: BoxDecoration(
-                        color: Colors.blue.shade100,
-                        border: Border.all(color: Colors.blue.shade300, width: 2),
+                        color: AppColors.gamePrimary.withOpacity(0.1),
+                        border: Border.all(color: AppColors.gamePrimary.withOpacity(0.3), width: 2),
                         borderRadius: const BorderRadius.only(
                           topLeft: Radius.circular(10),
                           topRight: Radius.circular(10),
@@ -212,11 +242,11 @@ class _RollAndReadGameState extends State<RollAndReadGame> {
                                 decoration: BoxDecoration(
                                   border: Border(
                                     right: i < 6 
-                                      ? BorderSide(color: Colors.blue.shade300, width: 1)
+                                      ? BorderSide(color: AppColors.gamePrimary.withOpacity(0.3), width: 1)
                                       : BorderSide.none,
                                   ),
                                   color: _diceValue == i && !_isRolling
-                                    ? Colors.yellow.shade300
+                                    ? AppColors.mediumBlue.withOpacity(0.3)
                                     : Colors.transparent,
                                 ),
                                 child: Center(
@@ -232,7 +262,7 @@ class _RollAndReadGameState extends State<RollAndReadGame> {
                     Expanded(
                       child: Container(
                         decoration: BoxDecoration(
-                          border: Border.all(color: Colors.blue.shade300, width: 2),
+                          border: Border.all(color: AppColors.gamePrimary.withOpacity(0.3), width: 2),
                           borderRadius: const BorderRadius.only(
                             bottomLeft: Radius.circular(10),
                             bottomRight: Radius.circular(10),
@@ -244,14 +274,14 @@ class _RollAndReadGameState extends State<RollAndReadGame> {
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
                                   CircularProgressIndicator(
-                                    color: Colors.green.shade600,
+                                    color: AppColors.gamePrimary,
                                   ),
                                   const SizedBox(height: 16),
                                   Text(
                                     'Loading long u words...',
                                     style: TextStyle(
                                       fontSize: isTablet ? 18 : 16,
-                                      color: Colors.grey.shade700,
+                                      color: AppColors.textSecondary,
                                     ),
                                   ),
                                 ],
@@ -267,21 +297,22 @@ class _RollAndReadGameState extends State<RollAndReadGame> {
                                       Expanded(
                                         child: GestureDetector(
                                           onTap: () => _toggleCell(row, col),
+                                          onLongPress: () => _speakWord(gridContent[row][col]),
                                           child: Container(
                                             decoration: BoxDecoration(
                                               border: Border(
                                                 right: col < 5 
-                                                  ? BorderSide(color: Colors.grey.shade300, width: 1)
+                                                  ? BorderSide(color: AppColors.lightGray, width: 1)
                                                   : BorderSide.none,
                                                 bottom: row < 5
-                                                  ? BorderSide(color: Colors.grey.shade300, width: 1)
+                                                  ? BorderSide(color: AppColors.lightGray, width: 1)
                                                   : BorderSide.none,
                                               ),
                                               color: _completedCells.contains('$row-$col')
-                                                ? Colors.green.shade100
+                                                ? (widget.user?.playerColor?.withOpacity(0.3) ?? AppColors.gamePrimary.withOpacity(0.1))
                                                 : (_diceValue == col + 1 && !_isRolling
-                                                  ? Colors.yellow.shade50
-                                                  : Colors.white),
+                                                  ? AppColors.mediumBlue.withOpacity(0.1)
+                                                  : AppColors.white),
                                             ),
                                             child: Stack(
                                               children: [
@@ -292,8 +323,8 @@ class _RollAndReadGameState extends State<RollAndReadGame> {
                                                       fontSize: isTablet ? 18 : 14,
                                                       fontWeight: FontWeight.w600,
                                                       color: _completedCells.contains('$row-$col')
-                                                        ? Colors.green.shade800
-                                                        : Colors.black87,
+                                                        ? (widget.user?.playerColor?.withOpacity(1.0) ?? AppColors.gamePrimary)
+                                                        : AppColors.textPrimary,
                                                     ),
                                                     textAlign: TextAlign.center,
                                                   ),
@@ -306,7 +337,7 @@ class _RollAndReadGameState extends State<RollAndReadGame> {
                                                     child: Icon(
                                                       Icons.star,
                                                       size: isTablet ? 20 : 16,
-                                                      color: Colors.amber.shade600,
+                                                      color: AppColors.mediumBlue,
                                                     ),
                                                   ),
                                               ],
@@ -328,13 +359,13 @@ class _RollAndReadGameState extends State<RollAndReadGame> {
             // Footer
             Container(
               padding: const EdgeInsets.symmetric(vertical: 8),
-              color: Colors.grey.shade200,
+              color: AppColors.lightGray.withOpacity(0.3),
               child: Center(
                 child: Text(
                   'Built by: Oval Innovations, LLC',
                   style: TextStyle(
                     fontSize: isTablet ? 14 : 12,
-                    color: Colors.grey.shade700,
+                    color: AppColors.textSecondary,
                     fontStyle: FontStyle.italic,
                   ),
                 ),
@@ -348,7 +379,7 @@ class _RollAndReadGameState extends State<RollAndReadGame> {
   
   Widget _buildDiceIcon(int value, double size) {
     final dotSize = size * 0.15;
-    final dotColor = Colors.black87;
+    final dotColor = AppColors.textPrimary;
     
     Widget dot() => Container(
       width: dotSize,
@@ -366,8 +397,8 @@ class _RollAndReadGameState extends State<RollAndReadGame> {
       height: size,
       padding: EdgeInsets.all(size * 0.15),
       decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border.all(color: Colors.black87, width: 2),
+        color: AppColors.white,
+        border: Border.all(color: AppColors.textPrimary, width: 2),
         borderRadius: BorderRadius.circular(size * 0.15),
       ),
       child: _getDicePattern(value, dot, empty),

@@ -1,12 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import 'dart:math';
+import 'package:speech_to_text/speech_to_text.dart' as stt;
+import '../config/app_colors.dart';
 import '../models/user_model.dart';
 import '../models/game_session_model.dart';
 import '../services/firestore_service.dart';
 import '../services/game_session_service.dart';
+import '../services/game_state_service.dart';
 import '../services/ai_word_service.dart';
+import '../models/game_state_model.dart';
 
 class AdminDashboardPage extends StatefulWidget {
   final UserModel adminUser;
@@ -23,14 +27,346 @@ class AdminDashboardPage extends StatefulWidget {
 class _AdminDashboardPageState extends State<AdminDashboardPage> {
   Map<String, dynamic>? _statistics;
   bool _loadingStats = true;
-  List<GameSessionModel> _games = [];
-  bool _loadingGames = true;
+  
+  // User management state
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = '';
+  String _sortBy = 'name'; // 'name', 'email', 'created', 'games', 'words'
+  bool _sortAscending = true;
+  String _roleFilter = 'all'; // 'all', 'admin', 'student'
+
+  // Speech-to-text state (mobile only)
+  stt.SpeechToText? _speech;
+  bool _speechEnabled = false;
+  bool _speechInitialized = false;
+  bool get _isMobilePlatform => !kIsWeb && (defaultTargetPlatform == TargetPlatform.iOS || defaultTargetPlatform == TargetPlatform.android);
 
   @override
   void initState() {
     super.initState();
     _loadStatistics();
-    _loadGames();
+    _searchController.addListener(_onSearchChanged);
+    _initializeSpeech();
+  }
+
+  @override
+  void dispose() {
+    _searchController.removeListener(_onSearchChanged);
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  void _onSearchChanged() {
+    setState(() {
+      _searchQuery = _searchController.text.toLowerCase().trim();
+    });
+  }
+
+  List<UserModel> _filterAndSortUsers(List<UserModel> users) {
+    // Filter by search query
+    var filteredUsers = users.where((user) {
+      if (_searchQuery.isEmpty) return true;
+      return user.displayName.toLowerCase().contains(_searchQuery) ||
+             user.emailAddress.toLowerCase().contains(_searchQuery);
+    }).toList();
+    
+    // Filter by role
+    if (_roleFilter != 'all') {
+      filteredUsers = filteredUsers.where((user) {
+        if (_roleFilter == 'admin') return user.isAdmin;
+        if (_roleFilter == 'student') return !user.isAdmin;
+        return true;
+      }).toList();
+    }
+    
+    // Sort users
+    filteredUsers.sort((a, b) {
+      int comparison = 0;
+      switch (_sortBy) {
+        case 'name':
+          comparison = a.displayName.toLowerCase().compareTo(b.displayName.toLowerCase());
+          break;
+        case 'email':
+          comparison = a.emailAddress.toLowerCase().compareTo(b.emailAddress.toLowerCase());
+          break;
+        case 'created':
+          comparison = a.createdAt.compareTo(b.createdAt);
+          break;
+        case 'games':
+          comparison = a.gamesPlayed.compareTo(b.gamesPlayed);
+          break;
+        case 'words':
+          comparison = a.wordsCorrect.compareTo(b.wordsCorrect);
+          break;
+      }
+      return _sortAscending ? comparison : -comparison;
+    });
+    
+    return filteredUsers;
+  }
+
+  Future<void> _confirmDeleteUser(UserModel user) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete User'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Are you sure you want to delete this user?'),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.grey.shade300),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    user.displayName,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(user.emailAddress),
+                  const SizedBox(height: 4),
+                  Text(
+                    user.isAdmin ? 'Teacher' : 'Student',
+                    style: TextStyle(
+                      color: user.isAdmin ? AppColors.adminPrimary : AppColors.studentPrimary,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'This action cannot be undone.',
+              style: TextStyle(
+                color: AppColors.error,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.error,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      final success = await FirestoreService.deleteUser(user.id);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(success 
+                ? '${user.displayName} deleted successfully' 
+                : 'Failed to delete ${user.displayName}'),
+            backgroundColor: success ? AppColors.success : AppColors.error,
+          ),
+        );
+      }
+      if (success) {
+        // Refresh statistics
+        setState(() {
+          _loadingStats = true;
+        });
+        _loadStatistics();
+      }
+    }
+  }
+
+  void _showEditUserDialog(UserModel user, bool isTablet) {
+    final nameController = TextEditingController(text: user.displayName);
+    final emailController = TextEditingController(text: user.emailAddress);
+    final pinController = TextEditingController(text: user.pin);
+    final formKey = GlobalKey<FormState>();
+    bool isAdmin = user.isAdmin;
+    bool isUpdating = false;
+    
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          Future<void> submitForm() async {
+            if (!formKey.currentState!.validate()) return;
+            
+            setDialogState(() {
+              isUpdating = true;
+            });
+            
+            try {
+              final updatedUser = user.copyWith(
+                displayName: nameController.text.trim(),
+                emailAddress: emailController.text.trim(),
+                pin: pinController.text.trim(),
+                isAdmin: isAdmin,
+              );
+              
+              final success = await FirestoreService.updateUser(updatedUser);
+              
+              if (mounted) {
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(success 
+                        ? '${user.displayName} updated successfully' 
+                        : 'Failed to update ${user.displayName}'),
+                    backgroundColor: success ? AppColors.success : AppColors.error,
+                  ),
+                );
+              }
+            } catch (e) {
+              if (mounted) {
+                setDialogState(() {
+                  isUpdating = false;
+                });
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Error updating user: $e'),
+                    backgroundColor: AppColors.error,
+                  ),
+                );
+              }
+            }
+          }
+          
+          return AlertDialog(
+          title: const Text('Edit User'),
+          content: SizedBox(
+            width: isTablet ? 400 : 300,
+            child: Form(
+              key: formKey,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextFormField(
+                    controller: nameController,
+                    textInputAction: TextInputAction.next,
+                    decoration: const InputDecoration(
+                      labelText: 'Name',
+                      prefixIcon: Icon(Icons.person),
+                    ),
+                    validator: (value) {
+                      if (value == null || value.trim().isEmpty) {
+                        return 'Please enter a name';
+                      }
+                      if (value.trim().length < 2) {
+                        return 'Name must be at least 2 characters';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: emailController,
+                    keyboardType: TextInputType.emailAddress,
+                    textInputAction: TextInputAction.next,
+                    decoration: const InputDecoration(
+                      labelText: 'Email',
+                      prefixIcon: Icon(Icons.email),
+                    ),
+                    validator: (value) {
+                      if (value == null || value.trim().isEmpty) {
+                        return 'Please enter an email';
+                      }
+                      if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$')
+                          .hasMatch(value.trim())) {
+                        return 'Please enter a valid email';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: pinController,
+                    keyboardType: TextInputType.number,
+                    maxLength: 4,
+                    textInputAction: TextInputAction.done,
+                    onFieldSubmitted: (_) {
+                      if (!formKey.currentState!.validate() || isUpdating) return;
+                      // Trigger the update user action
+                      submitForm();
+                    },
+                    decoration: const InputDecoration(
+                      labelText: 'PIN',
+                      prefixIcon: Icon(Icons.lock),
+                      counterText: '',
+                    ),
+                    validator: (value) {
+                      if (value == null || value.trim().isEmpty) {
+                        return 'Please enter a PIN';
+                      }
+                      if (value.trim().length != 4) {
+                        return 'PIN must be exactly 4 digits';
+                      }
+                      if (!RegExp(r'^\d{4}$').hasMatch(value.trim())) {
+                        return 'PIN must contain only numbers';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  CheckboxListTile(
+                    title: const Text('Teacher'),
+                    subtitle: const Text('Give teacher privileges'),
+                    value: isAdmin,
+                    onChanged: (value) {
+                      setDialogState(() {
+                        isAdmin = value ?? false;
+                      });
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: isUpdating ? null : () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: isUpdating ? null : () => submitForm(),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.adminPrimary,
+                foregroundColor: AppColors.onPrimary,
+              ),
+              child: isUpdating
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(AppColors.onPrimary),
+                      ),
+                    )
+                  : const Text('Update'),
+            ),
+          ],
+        );
+        },
+      ),
+    );
   }
 
   Future<void> _loadStatistics() async {
@@ -43,15 +379,90 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
     }
   }
 
-  Future<void> _loadGames() async {
-    final games = await GameSessionService.getGamesByAdmin(widget.adminUser.id);
-    if (mounted) {
-      setState(() {
-        _games = games;
-        _loadingGames = false;
-      });
+  Future<void> _initializeSpeech() async {
+    try {
+      _speech = stt.SpeechToText();
+      
+      // Try to initialize speech recognition on all platforms
+      // The speech_to_text plugin handles permissions internally
+      _speechEnabled = await _speech!.initialize(
+        onError: (error) {
+          print('Speech error: ${error.errorMsg}');
+        },
+        onStatus: (status) {
+          print('Speech status: $status');
+        },
+      );
+      
+      if (mounted) {
+        setState(() {
+          _speechInitialized = true;
+        });
+      }
+    } catch (e) {
+      print('Speech initialization error: $e');
+      if (mounted) {
+        setState(() {
+          _speechEnabled = false;
+          _speechInitialized = true;
+        });
+      }
     }
   }
+
+  Future<void> _startVoiceRecording({
+    required TextEditingController controller,
+    required Function(String) onResult,
+    required VoidCallback onStart,
+    required VoidCallback onStop,
+  }) async {
+    if (!_speechEnabled || !_speechInitialized || _speech == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Voice recording not available. Please make sure microphone permissions are granted.'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+      return;
+    }
+
+    onStart();
+    
+    try {
+      await _speech!.listen(
+        onResult: (result) {
+          if (result.finalResult) {
+            controller.text = result.recognizedWords;
+            onResult(result.recognizedWords);
+            onStop();
+          }
+        },
+        listenFor: const Duration(seconds: 30),
+        pauseFor: const Duration(seconds: 3),
+        partialResults: true,
+        cancelOnError: true,
+        listenMode: stt.ListenMode.confirmation,
+      );
+    } catch (e) {
+      print('Error starting voice recording: $e');
+      onStop();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Could not start voice recording. Please try again.'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    }
+  }
+
+  void _stopVoiceRecording() {
+    _speech?.stop();
+  }
+
 
   void _showCreateUserDialog() {
     final nameController = TextEditingController();
@@ -124,6 +535,66 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
                         controller: pinController,
                         keyboardType: TextInputType.number,
                         maxLength: 4,
+                        textInputAction: TextInputAction.done,
+                        onFieldSubmitted: (_) async {
+                          if (!formKey.currentState!.validate() || isCreating) return;
+                          
+                          setDialogState(() {
+                            isCreating = true;
+                          });
+                          
+                          try {
+                            // Check if user already exists
+                            final existingUser = await FirestoreService.getUserByEmail(
+                              emailController.text.trim(),
+                            );
+                            
+                            if (existingUser != null) {
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('User with this email already exists'),
+                                    backgroundColor: AppColors.mediumBlue,
+                                  ),
+                                );
+                              }
+                              setDialogState(() {
+                                isCreating = false;
+                              });
+                              return;
+                            }
+                            
+                            // Create user
+                            final user = await FirestoreService.createUser(
+                              email: emailController.text.trim(),
+                              displayName: nameController.text.trim(),
+                              pin: pinController.text.trim(),
+                              isAdmin: isAdmin,
+                            );
+                            
+                            if (mounted) {
+                              Navigator.pop(context);
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text('User ${user?.displayName ?? 'Unknown'} created successfully with PIN: ${user?.pin ?? 'N/A'}'),
+                                  backgroundColor: AppColors.success,
+                                ),
+                              );
+                            }
+                          } catch (e) {
+                            if (mounted) {
+                              setDialogState(() {
+                                isCreating = false;
+                              });
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text('Error creating user: $e'),
+                                  backgroundColor: AppColors.error,
+                                ),
+                              );
+                            }
+                          }
+                        },
                         decoration: const InputDecoration(
                           labelText: '4-Digit PIN',
                           hintText: '1234',
@@ -154,15 +625,15 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
                       icon: const Icon(Icons.refresh),
                       tooltip: 'Generate Random PIN',
                       style: IconButton.styleFrom(
-                        backgroundColor: Colors.green.shade100,
-                        foregroundColor: Colors.green.shade700,
+                        backgroundColor: AppColors.success.withOpacity(0.1),
+                        foregroundColor: AppColors.success,
                       ),
                     ),
                   ],
                 ),
                 const SizedBox(height: 16),
                 CheckboxListTile(
-                  title: const Text('Admin User'),
+                  title: const Text('Teacher'),
                   subtitle: const Text('Give admin privileges'),
                   value: isAdmin,
                   onChanged: (value) {
@@ -200,7 +671,7 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(
                                 content: Text('User with this email already exists'),
-                                backgroundColor: Colors.orange,
+                                backgroundColor: AppColors.mediumBlue,
                               ),
                             );
                           }
@@ -264,7 +735,7 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
                       height: 16,
                       child: CircularProgressIndicator(
                         strokeWidth: 2,
-                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                        valueColor: AlwaysStoppedAnimation<Color>(AppColors.onPrimary),
                       ),
                     )
                   : const Text('Create User'),
@@ -296,6 +767,7 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
               children: [
                 TextFormField(
                   controller: gameNameController,
+                  textInputAction: TextInputAction.done,
                   decoration: const InputDecoration(
                     labelText: 'Game Name (Optional)',
                     hintText: 'Reading Challenge 1',
@@ -368,27 +840,44 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
                     },
                   ),
                   const SizedBox(height: 16),
-                  TextFormField(
-                    controller: wordPromptController,
-                    maxLines: 3,
-                    decoration: const InputDecoration(
-                      labelText: 'Word Prompt for AI',
-                      hintText: 'Example: "Animals that live in the ocean" or "Words with long vowel sounds"',
-                      prefixIcon: Icon(Icons.lightbulb),
-                      alignLabelWithHint: true,
-                    ),
-                    validator: (value) {
-                      // Only validate if AI words are enabled
-                      if (!useAIWords) return null;
-                      
-                      if (value == null || value.trim().isEmpty) {
-                        return 'Please enter a prompt for AI word generation';
-                      }
-                      if (value.trim().length < 10) {
-                        return 'Please provide a more detailed prompt';
-                      }
-                      return null;
-                    },
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: TextFormField(
+                          controller: wordPromptController,
+                          maxLines: 3,
+                          decoration: const InputDecoration(
+                            labelText: 'Word Prompt for AI',
+                            hintText: 'Describe the type of words you want the AI to generate',
+                            prefixIcon: Icon(Icons.lightbulb),
+                            alignLabelWithHint: true,
+                          ),
+                          validator: (value) {
+                            // Only validate if AI words are enabled
+                            if (!useAIWords) return null;
+                            
+                            if (value == null || value.trim().isEmpty) {
+                              return 'Please enter a prompt for AI word generation';
+                            }
+                            if (value.trim().length < 10) {
+                              return 'Please provide a more detailed prompt';
+                            }
+                            return null;
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Column(
+                        children: [
+                          const SizedBox(height: 16), // Align with text field
+                          _buildVoiceRecordButton(
+                            controller: wordPromptController,
+                            setDialogState: setDialogState,
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 8),
                   SizedBox(
@@ -510,19 +999,20 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
                                 textColor: Colors.white,
                                 onPressed: () {
                                   Clipboard.setData(ClipboardData(text: gameSession.gameId));
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                      content: Text('Game ID ${gameSession.gameId} copied to clipboard!'),
-                                      duration: const Duration(seconds: 2),
-                                      backgroundColor: Colors.blue,
-                                    ),
-                                  );
+                                  if (mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text('Game ID ${gameSession.gameId} copied to clipboard!'),
+                                        duration: const Duration(seconds: 2),
+                                        backgroundColor: Colors.blue,
+                                      ),
+                                    );
+                                  }
                                 },
                               ),
                             ),
                           );
-                          // Refresh games list
-                          _loadGames();
+                          // Games list will update automatically via StreamBuilder
                         }
                       } catch (e) {
                         print('Error creating game: $e');
@@ -555,7 +1045,7 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
   Future<void> _startGame(GameSessionModel game) async {
     try {
       await GameSessionService.startGameSession(game.gameId);
-      _loadGames(); // Refresh the games list
+      // Games list will update automatically via StreamBuilder
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -590,7 +1080,7 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
           ElevatedButton(
             onPressed: () => Navigator.pop(context, true),
             style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red.shade600,
+              backgroundColor: AppColors.error,
               foregroundColor: Colors.white,
             ),
             child: const Text('Delete'),
@@ -602,12 +1092,12 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
     if (confirm == true) {
       try {
         await GameSessionService.deleteGameSession(game.gameId);
-        _loadGames(); // Refresh the games list
+        // Games list will update automatically via StreamBuilder
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text('Game "${game.gameName}" deleted'),
-              backgroundColor: Colors.orange,
+              backgroundColor: AppColors.mediumBlue,
             ),
           );
         }
@@ -629,11 +1119,11 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
     final isTablet = MediaQuery.of(context).size.shortestSide >= 600;
 
     return Scaffold(
-      backgroundColor: Colors.grey.shade100,
+      backgroundColor: AppColors.adminBackground,
       appBar: AppBar(
-        title: const Text('Admin Dashboard'),
-        backgroundColor: Colors.red.shade700,
-        foregroundColor: Colors.white,
+        title: const Text('Teacher Dashboard'),
+        backgroundColor: AppColors.adminPrimary,
+        foregroundColor: AppColors.onPrimary,
         elevation: 0,
         actions: [
           IconButton(
@@ -651,10 +1141,9 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
             onPressed: () {
               setState(() {
                 _loadingStats = true;
-                _loadingGames = true;
               });
               _loadStatistics();
-              _loadGames();
+              // Games list will refresh automatically via StreamBuilder
             },
             tooltip: 'Refresh',
           ),
@@ -677,8 +1166,8 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
                         Navigator.pop(context);
                       },
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.red.shade700,
-                        foregroundColor: Colors.white,
+                        backgroundColor: AppColors.error,
+                        foregroundColor: AppColors.onPrimary,
                       ),
                       child: const Text('Logout'),
                     ),
@@ -692,18 +1181,18 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
       ),
       body: Column(
         children: [
-          // Admin Info Banner
+          // Teacher Info Banner
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(16),
-            color: Colors.red.shade700,
+            color: AppColors.adminPrimary,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   'Welcome, ${widget.adminUser.displayName}',
                   style: TextStyle(
-                    color: Colors.white,
+                    color: AppColors.onPrimary,
                     fontSize: isTablet ? 24 : 20,
                     fontWeight: FontWeight.bold,
                   ),
@@ -712,12 +1201,28 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
                 Text(
                   widget.adminUser.emailAddress,
                   style: TextStyle(
-                    color: Colors.white.withOpacity(0.9),
+                    color: AppColors.onPrimary.withOpacity(0.9),
                     fontSize: isTablet ? 16 : 14,
                   ),
                 ),
               ],
             ),
+          ),
+
+          // Pending Pronunciations Section - Always at top for immediate visibility
+          StreamBuilder<List<GameSessionModel>>(
+            stream: GameSessionService.listenToGamesByAdmin(widget.adminUser.id),
+            builder: (context, gamesSnapshot) {
+              if (!gamesSnapshot.hasData) return const SizedBox.shrink();
+              
+              final activeGames = gamesSnapshot.data!
+                  .where((game) => game.status == GameStatus.inProgress)
+                  .toList();
+              
+              if (activeGames.isEmpty) return const SizedBox.shrink();
+              
+              return _buildGlobalPronunciationsSection(activeGames, isTablet);
+            },
           ),
           
           // Games Section Header  
@@ -746,74 +1251,207 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
           ),
           const SizedBox(height: 8),
 
-          // Games List
-          if (_loadingGames)
-            const Padding(
-              padding: EdgeInsets.all(32),
-              child: Center(child: CircularProgressIndicator()),
-            )
-          else
-            SizedBox(
-              height: 200, // Fixed height for games section
-              child: _games.isEmpty
-                  ? Center(
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              Icons.games_outlined,
-                              size: isTablet ? 48 : 40,
-                              color: Colors.grey.shade400,
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              'No games created yet',
-                              style: TextStyle(
-                                fontSize: isTablet ? 16 : 14,
-                                color: Colors.grey.shade600,
-                              ),
-                            ),
-                          ],
+          // Games List with real-time updates
+          SizedBox(
+            height: 200, // Fixed height for games section
+            child: StreamBuilder<List<GameSessionModel>>(
+              stream: GameSessionService.listenToGamesByAdmin(widget.adminUser.id),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Padding(
+                    padding: EdgeInsets.all(32),
+                    child: Center(child: CircularProgressIndicator()),
+                  );
+                }
+
+                if (snapshot.hasError) {
+                  return Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Text(
+                        'Error loading games: ${snapshot.error}',
+                        style: TextStyle(
+                          fontSize: isTablet ? 16 : 14,
+                          color: Colors.red.shade600,
                         ),
+                        textAlign: TextAlign.center,
                       ),
-                    )
-                  : ListView.builder(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      itemCount: _games.length,
-                      itemBuilder: (context, index) {
-                        final game = _games[index];
-                        return _buildGameCard(game, isTablet);
-                      },
                     ),
+                  );
+                }
+
+                final games = snapshot.data ?? [];
+
+                if (games.isEmpty) {
+                  return Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.games_outlined,
+                            size: isTablet ? 48 : 40,
+                            color: Colors.grey.shade400,
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'No games created yet',
+                            style: TextStyle(
+                              fontSize: isTablet ? 16 : 14,
+                              color: Colors.grey.shade600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                }
+
+                return ListView.builder(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  itemCount: games.length,
+                  itemBuilder: (context, index) {
+                    final game = games[index];
+                    return _buildGameCard(game, isTablet);
+                  },
+                );
+              },
             ),
+          ),
           
-          // Users List Header
+          // Users Management Header
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  'All Users',
-                  style: TextStyle(
-                    fontSize: isTablet ? 20 : 18,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.grey.shade800,
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'User Management',
+                      style: TextStyle(
+                        fontSize: isTablet ? 20 : 18,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.grey.shade800,
+                      ),
+                    ),
+                    Text(
+                      'Tap to manage users',
+                      style: TextStyle(
+                        fontSize: isTablet ? 14 : 12,
+                        color: Colors.grey.shade600,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                
+                // Search Bar
+                TextField(
+                  controller: _searchController,
+                  decoration: InputDecoration(
+                    hintText: 'Search by name or email...',
+                    prefixIcon: const Icon(Icons.search),
+                    suffixIcon: _searchQuery.isNotEmpty
+                        ? IconButton(
+                            icon: const Icon(Icons.clear),
+                            onPressed: () {
+                              _searchController.clear();
+                            },
+                          )
+                        : null,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    filled: true,
+                    fillColor: Colors.grey.shade50,
                   ),
                 ),
-                Text(
-                  'Swipe left to manage',
-                  style: TextStyle(
-                    fontSize: isTablet ? 14 : 12,
-                    color: Colors.grey.shade600,
-                  ),
+                const SizedBox(height: 12),
+                
+                // Filter and Sort Controls
+                Row(
+                  children: [
+                    // Role Filter
+                    Expanded(
+                      child: DropdownButtonFormField<String>(
+                        value: _roleFilter,
+                        decoration: InputDecoration(
+                          labelText: 'Role',
+                          prefixIcon: const Icon(Icons.person),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          filled: true,
+                          fillColor: Colors.grey.shade50,
+                        ),
+                        items: const [
+                          DropdownMenuItem(value: 'all', child: Text('All Users')),
+                          DropdownMenuItem(value: 'admin', child: Text('Teachers Only')),
+                          DropdownMenuItem(value: 'student', child: Text('Students Only')),
+                        ],
+                        onChanged: (value) {
+                          setState(() {
+                            _roleFilter = value ?? 'all';
+                          });
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    
+                    // Sort Dropdown
+                    Expanded(
+                      child: DropdownButtonFormField<String>(
+                        value: _sortBy,
+                        decoration: InputDecoration(
+                          labelText: 'Sort By',
+                          prefixIcon: const Icon(Icons.sort),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          filled: true,
+                          fillColor: Colors.grey.shade50,
+                        ),
+                        items: const [
+                          DropdownMenuItem(value: 'name', child: Text('Name')),
+                          DropdownMenuItem(value: 'email', child: Text('Email')),
+                          DropdownMenuItem(value: 'created', child: Text('Date Created')),
+                          DropdownMenuItem(value: 'games', child: Text('Games Played')),
+                          DropdownMenuItem(value: 'words', child: Text('Words Read')),
+                        ],
+                        onChanged: (value) {
+                          setState(() {
+                            _sortBy = value ?? 'name';
+                          });
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    
+                    // Sort Direction Toggle
+                    IconButton(
+                      onPressed: () {
+                        setState(() {
+                          _sortAscending = !_sortAscending;
+                        });
+                      },
+                      icon: Icon(
+                        _sortAscending ? Icons.arrow_upward : Icons.arrow_downward,
+                        color: Colors.blue.shade700,
+                      ),
+                      tooltip: _sortAscending ? 'Ascending' : 'Descending',
+                      style: IconButton.styleFrom(
+                        backgroundColor: Colors.blue.shade50,
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 16),
           
           // Users List
           Expanded(
@@ -826,130 +1464,240 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
                 
                 if (snapshot.hasError) {
                   return Center(
-                    child: Text('Error: ${snapshot.error}'),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.error_outline,
+                          size: isTablet ? 48 : 40,
+                          color: Colors.red.shade400,
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Error loading users: ${snapshot.error}',
+                          style: TextStyle(
+                            fontSize: isTablet ? 16 : 14,
+                            color: Colors.red.shade600,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
+                    ),
                   );
                 }
                 
-                final users = snapshot.data ?? [];
+                final allUsers = snapshot.data ?? [];
+                final filteredUsers = _filterAndSortUsers(allUsers);
                 
-                if (users.isEmpty) {
-                  return const Center(
-                    child: Text('No users found'),
-                  );
-                }
-                
-                return ListView.builder(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  itemCount: users.length,
-                  itemBuilder: (context, index) {
-                    final user = users[index];
-                    return Card(
-                      margin: const EdgeInsets.only(bottom: 8),
-                      child: Dismissible(
-                        key: Key(user.id),
-                        direction: DismissDirection.endToStart,
-                        background: Container(
-                          alignment: Alignment.centerRight,
-                          padding: const EdgeInsets.only(right: 20),
-                          color: Colors.red,
-                          child: const Icon(
-                            Icons.delete,
-                            color: Colors.white,
+                if (allUsers.isEmpty) {
+                  return Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.people_outline,
+                          size: isTablet ? 48 : 40,
+                          color: Colors.grey.shade400,
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'No users found',
+                          style: TextStyle(
+                            fontSize: isTablet ? 16 : 14,
+                            color: Colors.grey.shade600,
                           ),
                         ),
-                        confirmDismiss: (direction) async {
-                          return await showDialog(
-                            context: context,
-                            builder: (BuildContext context) {
-                              return AlertDialog(
-                                title: const Text('Confirm Delete'),
-                                content: Text(
-                                    'Are you sure you want to delete ${user.displayName}?'),
-                                actions: [
-                                  TextButton(
-                                    onPressed: () =>
-                                        Navigator.of(context).pop(false),
-                                    child: const Text('Cancel'),
-                                  ),
-                                  ElevatedButton(
-                                    onPressed: () =>
-                                        Navigator.of(context).pop(true),
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: Colors.red,
-                                      foregroundColor: Colors.white,
-                                    ),
-                                    child: const Text('Delete'),
-                                  ),
-                                ],
-                              );
-                            },
-                          );
-                        },
-                        onDismissed: (direction) {
-                          FirebaseFirestore.instance
-                              .collection('users')
-                              .doc(user.id)
-                              .delete();
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text('${user.displayName} deleted'),
-                            ),
-                          );
-                        },
-                        child: ListTile(
-                          leading: CircleAvatar(
-                            backgroundColor: user.isAdmin
-                                ? Colors.red.shade100
-                                : Colors.green.shade100,
-                            child: Icon(
-                              user.isAdmin
-                                  ? Icons.admin_panel_settings
-                                  : Icons.person,
-                              color: user.isAdmin
-                                  ? Colors.red.shade700
-                                  : Colors.green.shade700,
-                            ),
+                      ],
+                    ),
+                  );
+                }
+                
+                if (filteredUsers.isEmpty) {
+                  return Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.search_off,
+                          size: isTablet ? 48 : 40,
+                          color: Colors.grey.shade400,
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'No users match your search',
+                          style: TextStyle(
+                            fontSize: isTablet ? 16 : 14,
+                            color: Colors.grey.shade600,
                           ),
-                          title: Text(
-                            user.displayName,
-                            style: TextStyle(
-                              fontWeight: FontWeight.w600,
-                              fontSize: isTablet ? 16 : 14,
-                            ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Try adjusting your search or filters',
+                          style: TextStyle(
+                            fontSize: isTablet ? 12 : 10,
+                            color: Colors.grey.shade500,
                           ),
-                          subtitle: Text(
-                            user.emailAddress,
+                        ),
+                      ],
+                    ),
+                  );
+                }
+                
+                return Column(
+                  children: [
+                    // Results summary
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'Showing ${filteredUsers.length} of ${allUsers.length} users',
                             style: TextStyle(
                               fontSize: isTablet ? 14 : 12,
+                              color: Colors.grey.shade600,
+                              fontWeight: FontWeight.w500,
                             ),
                           ),
-                          trailing: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            crossAxisAlignment: CrossAxisAlignment.end,
-                            children: [
-                              Text(
-                                'Games: ${user.gamesPlayed}',
-                                style: TextStyle(
-                                  fontSize: isTablet ? 13 : 11,
-                                  color: Colors.grey.shade600,
-                                ),
+                          if (_searchQuery.isNotEmpty || _roleFilter != 'all')
+                            TextButton.icon(
+                              onPressed: () {
+                                setState(() {
+                                  _searchController.clear();
+                                  _roleFilter = 'all';
+                                  _sortBy = 'name';
+                                  _sortAscending = true;
+                                });
+                              },
+                              icon: const Icon(Icons.clear_all, size: 16),
+                              label: const Text('Clear Filters'),
+                              style: TextButton.styleFrom(
+                                foregroundColor: Colors.blue.shade700,
                               ),
-                              Text(
-                                'Words: ${user.wordsCorrect}',
-                                style: TextStyle(
-                                  fontSize: isTablet ? 13 : 11,
-                                  color: Colors.grey.shade600,
-                                ),
-                              ),
-                            ],
-                          ),
-                          onTap: () {
-                            _showUserDetails(user, isTablet);
-                          },
-                        ),
+                            ),
+                        ],
                       ),
-                    );
-                  },
+                    ),
+                    const SizedBox(height: 8),
+                    
+                    // Users list
+                    Expanded(
+                      child: ListView.builder(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        itemCount: filteredUsers.length,
+                        itemBuilder: (context, index) {
+                          final user = filteredUsers[index];
+                          return Card(
+                            margin: const EdgeInsets.only(bottom: 8),
+                            child: ListTile(
+                              leading: CircleAvatar(
+                                backgroundColor: user.isAdmin
+                                    ? Colors.red.shade100
+                                    : Colors.green.shade100,
+                                child: Icon(
+                                  user.isAdmin
+                                      ? Icons.admin_panel_settings
+                                      : Icons.person,
+                                  color: user.isAdmin
+                                      ? Colors.red.shade700
+                                      : Colors.green.shade700,
+                                ),
+                              ),
+                              title: Text(
+                                user.displayName,
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: isTablet ? 16 : 14,
+                                ),
+                              ),
+                              subtitle: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    user.emailAddress,
+                                    style: TextStyle(
+                                      fontSize: isTablet ? 14 : 12,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Row(
+                                    children: [
+                                      Text(
+                                        'Games: ${user.gamesPlayed}',
+                                        style: TextStyle(
+                                          fontSize: isTablet ? 12 : 10,
+                                          color: Colors.grey.shade600,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 16),
+                                      Text(
+                                        'Words: ${user.wordsCorrect}',
+                                        style: TextStyle(
+                                          fontSize: isTablet ? 12 : 10,
+                                          color: Colors.grey.shade600,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                              trailing: PopupMenuButton<String>(
+                                onSelected: (value) async {
+                                  switch (value) {
+                                    case 'view':
+                                      _showUserDetails(user, isTablet);
+                                      break;
+                                    case 'edit':
+                                      _showEditUserDialog(user, isTablet);
+                                      break;
+                                    case 'delete':
+                                      _confirmDeleteUser(user);
+                                      break;
+                                  }
+                                },
+                                itemBuilder: (context) => [
+                                  const PopupMenuItem(
+                                    value: 'view',
+                                    child: Row(
+                                      children: [
+                                        Icon(Icons.info_outline),
+                                        SizedBox(width: 12),
+                                        Text('View Details'),
+                                      ],
+                                    ),
+                                  ),
+                                  const PopupMenuItem(
+                                    value: 'edit',
+                                    child: Row(
+                                      children: [
+                                        Icon(Icons.edit),
+                                        SizedBox(width: 12),
+                                        Text('Edit User'),
+                                      ],
+                                    ),
+                                  ),
+                                  const PopupMenuItem(
+                                    value: 'delete',
+                                    child: Row(
+                                      children: [
+                                        Icon(Icons.delete, color: Colors.red),
+                                        SizedBox(width: 12),
+                                        Text('Delete User', style: TextStyle(color: Colors.red)),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                                icon: const Icon(Icons.more_vert),
+                              ),
+                              onTap: () {
+                                _showUserDetails(user, isTablet);
+                              },
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
                 );
               },
             ),
@@ -966,7 +1714,7 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
 
     switch (game.status) {
       case GameStatus.waitingForPlayers:
-        statusColor = Colors.orange;
+        statusColor = AppColors.mediumBlue;
         statusText = 'Waiting (${game.players.length}/${game.maxPlayers})';
         statusIcon = Icons.hourglass_empty;
         break;
@@ -1030,13 +1778,15 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
                         GestureDetector(
                           onTap: () {
                             Clipboard.setData(ClipboardData(text: game.gameId));
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text('Game ID ${game.gameId} copied!'),
-                                duration: const Duration(seconds: 2),
-                                backgroundColor: Colors.blue,
-                              ),
-                            );
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text('Game ID ${game.gameId} copied!'),
+                                  duration: const Duration(seconds: 2),
+                                  backgroundColor: Colors.blue,
+                                ),
+                              );
+                            }
                           },
                           child: Container(
                             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
@@ -1115,102 +1865,122 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
   void _showGameDetailsDialog(GameSessionModel game, bool isTablet) {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Row(
-          children: [
-            Expanded(child: Text(game.gameName)),
-            GestureDetector(
-              onTap: () {
-                Clipboard.setData(ClipboardData(text: game.gameId));
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Game ID ${game.gameId} copied to clipboard!'),
-                    duration: const Duration(seconds: 2),
-                    backgroundColor: Colors.blue,
+      builder: (context) => StreamBuilder<GameSessionModel?>(
+        stream: GameSessionService.listenToGameSession(game.gameId),
+        initialData: game,
+        builder: (context, snapshot) {
+          final currentGame = snapshot.data ?? game;
+          
+          return AlertDialog(
+            title: Row(
+              children: [
+                Expanded(child: Text(currentGame.gameName)),
+                GestureDetector(
+                  onTap: () {
+                    Clipboard.setData(ClipboardData(text: currentGame.gameId));
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('Game ID ${currentGame.gameId} copied to clipboard!'),
+                          duration: const Duration(seconds: 2),
+                          backgroundColor: Colors.blue,
+                        ),
+                      );
+                    }
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.blue.shade100,
+                      borderRadius: BorderRadius.circular(4),
+                      border: Border.all(color: Colors.blue.shade300),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          currentGame.gameId,
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.blue.shade700,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        Icon(
+                          Icons.copy,
+                          size: 14,
+                          color: Colors.blue.shade700,
+                        ),
+                      ],
+                    ),
                   ),
-                );
-              },
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                decoration: BoxDecoration(
-                  color: Colors.blue.shade100,
-                  borderRadius: BorderRadius.circular(4),
-                  border: Border.all(color: Colors.blue.shade300),
                 ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      game.gameId,
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.blue.shade700,
-                      ),
-                    ),
-                    const SizedBox(width: 4),
-                    Icon(
-                      Icons.copy,
-                      size: 14,
-                      color: Colors.blue.shade700,
-                    ),
+              ],
+            ),
+            content: SizedBox(
+              width: isTablet ? 500 : 300,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Status: ${currentGame.status.toString().split('.').last}'),
+                  Text('Max Players: ${currentGame.maxPlayers}'),
+                  Text('Current Players: ${currentGame.players.length}/${currentGame.maxPlayers}'),
+                  if (currentGame.players.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Text('Players:', style: TextStyle(fontWeight: FontWeight.bold)),
+                    ...currentGame.players.map((player) => Padding(
+                      padding: const EdgeInsets.only(left: 16, top: 4),
+                      child: Text('• ${player.displayName}'),
+                    )).toList(),
                   ],
+                  
+                  // Show pending pronunciations for active games
+                  if (currentGame.status == GameStatus.inProgress) ...[
+                    const SizedBox(height: 16),
+                    _buildPronunciationSection(currentGame),
+                  ],
+                  
+                  const SizedBox(height: 8),
+                  Text('Created: ${_formatDateTime(currentGame.createdAt)}'),
+                  if (currentGame.startedAt != null)
+                    Text('Started: ${_formatDateTime(currentGame.startedAt!)}'),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Close'),
+              ),
+              if (currentGame.status == GameStatus.waitingForPlayers && currentGame.players.isNotEmpty)
+                ElevatedButton(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    _startGame(currentGame);
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green.shade600,
+                    foregroundColor: Colors.white,
+                  ),
+                  child: const Text('Start Game'),
                 ),
-              ),
-            ),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Status: ${game.status.toString().split('.').last}'),
-            Text('Max Players: ${game.maxPlayers}'),
-            Text('Current Players: ${game.players.length}/${game.maxPlayers}'),
-            if (game.players.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              Text('Players:', style: TextStyle(fontWeight: FontWeight.bold)),
-              ...game.players.map((player) => Padding(
-                padding: const EdgeInsets.only(left: 16, top: 4),
-                child: Text('• ${player.displayName}'),
-              )).toList(),
+              if (currentGame.status == GameStatus.waitingForPlayers || currentGame.status == GameStatus.inProgress)
+                ElevatedButton(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    _deleteGame(currentGame);
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.error,
+                    foregroundColor: Colors.white,
+                  ),
+                  child: const Text('Delete'),
+                ),
             ],
-            const SizedBox(height: 8),
-            Text('Created: ${_formatDateTime(game.createdAt)}'),
-            if (game.startedAt != null)
-              Text('Started: ${_formatDateTime(game.startedAt!)}'),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
-          ),
-          if (game.status == GameStatus.waitingForPlayers && game.players.isNotEmpty)
-            ElevatedButton(
-              onPressed: () {
-                Navigator.pop(context);
-                _startGame(game);
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.green.shade600,
-                foregroundColor: Colors.white,
-              ),
-              child: const Text('Start Game'),
-            ),
-          if (game.status == GameStatus.waitingForPlayers || game.status == GameStatus.inProgress)
-            ElevatedButton(
-              onPressed: () {
-                Navigator.pop(context);
-                _deleteGame(game);
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.red.shade600,
-                foregroundColor: Colors.white,
-              ),
-              child: const Text('Delete'),
-            ),
-        ],
+          );
+        },
       ),
     );
   }
@@ -1316,7 +2086,7 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
                     const SizedBox(height: 12),
                     _buildDetailRow('Email', user.emailAddress, isTablet),
                     _buildDetailRow('PIN', user.pin, isTablet),
-                    _buildDetailRow('Role', user.isAdmin ? 'Admin' : 'Student', isTablet),
+                    _buildDetailRow('Role', user.isAdmin ? 'Teacher' : 'Student', isTablet),
                     _buildDetailRow(
                       'Member Since',
                       _formatDateTime(user.createdAt),
@@ -1375,7 +2145,7 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
                               'Games Won',
                               user.gamesWon.toString(),
                               Icons.emoji_events,
-                              Colors.orange,
+                              AppColors.mediumBlue,
                               isTablet,
                             ),
                           ),
@@ -1430,7 +2200,7 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
                           'This user has administrator privileges and can create games and manage users.',
                           style: TextStyle(
                             fontSize: isTablet ? 14 : 12,
-                            color: Colors.red.shade700,
+                            color: AppColors.adminPrimary,
                             fontStyle: FontStyle.italic,
                           ),
                         ),
@@ -1447,26 +2217,6 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
             onPressed: () => Navigator.pop(context),
             child: const Text('Close'),
           ),
-          if (!user.isAdmin)
-            ElevatedButton(
-              onPressed: () async {
-                final updatedUser = user.copyWith(isAdmin: true);
-                await FirestoreService.updateUser(updatedUser);
-                if (mounted) {
-                  Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('${user.displayName} is now an admin'),
-                    ),
-                  );
-                }
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.green,
-                foregroundColor: Colors.white,
-              ),
-              child: const Text('Make Admin'),
-            ),
         ],
       ),
     );
@@ -1512,6 +2262,154 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
     return '${dateTime.month}/${dateTime.day}/${dateTime.year} ${hour}:${dateTime.minute.toString().padLeft(2, '0')} $period';
   }
 
+  
+  Widget _buildPronunciationSection(GameSessionModel game) {
+    return StreamBuilder<GameStateModel?>(
+      stream: GameStateService.getGameStateStream(game.gameId),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) {
+          return const SizedBox.shrink();
+        }
+        
+        final gameState = snapshot.data!;
+        final pendingPronunciations = gameState.pendingPronunciations;
+        
+        if (pendingPronunciations.isEmpty) {
+          return const SizedBox.shrink();
+        }
+        
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Pending Pronunciations:',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                color: Colors.purple.shade700,
+              ),
+            ),
+            const SizedBox(height: 8),
+            ...pendingPronunciations.entries.map((entry) {
+              final cellKey = entry.key;
+              final attempt = entry.value;
+              
+              return Container(
+                margin: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.purple.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.purple.shade200),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '${attempt.playerName} → "${attempt.word}"',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 14,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                      children: [
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            onPressed: () => _approvePronunciation(game.gameId, cellKey, game.playerIds),
+                            icon: const Icon(Icons.check, size: 16),
+                            label: const Text('Correct'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.green.shade600,
+                              foregroundColor: AppColors.onPrimary,
+                              padding: const EdgeInsets.symmetric(vertical: 8),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            onPressed: () => _rejectPronunciation(game.gameId, cellKey, game.playerIds),
+                            icon: const Icon(Icons.close, size: 16),
+                            label: const Text('Wrong'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.error,
+                              foregroundColor: AppColors.onPrimary,
+                              padding: const EdgeInsets.symmetric(vertical: 8),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              );
+            }).toList(),
+          ],
+        );
+      },
+    );
+  }
+  
+  Future<void> _approvePronunciation(String gameId, String cellKey, List<String> playerIds) async {
+    try {
+      await GameStateService.approvePronunciation(
+        gameId: gameId, 
+        cellKey: cellKey, 
+        playerIds: playerIds,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Pronunciation approved!'),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: ${e.toString()}'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    }
+  }
+  
+  Future<void> _rejectPronunciation(String gameId, String cellKey, List<String> playerIds) async {
+    try {
+      await GameStateService.rejectPronunciation(
+        gameId: gameId, 
+        cellKey: cellKey, 
+        playerIds: playerIds,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Pronunciation rejected.'),
+            backgroundColor: AppColors.mediumBlue,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: ${e.toString()}'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    }
+  }
+
   Widget _buildStatBox(String label, String value, IconData icon, Color color, bool isTablet) {
     return Container(
       padding: const EdgeInsets.all(12),
@@ -1547,6 +2445,252 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildGlobalPronunciationsSection(List<GameSessionModel> activeGames, bool isTablet) {
+    return StreamBuilder<List<GameStateModel?>>(
+      stream: _combineGameStateStreams(activeGames),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) return const SizedBox.shrink();
+        
+        // Collect all pending pronunciations from all games
+        final allPendingPronunciations = <Map<String, dynamic>>[];
+        
+        for (int i = 0; i < activeGames.length; i++) {
+          final gameState = snapshot.data![i];
+          if (gameState != null && gameState.pendingPronunciations.isNotEmpty) {
+            gameState.pendingPronunciations.forEach((cellKey, attempt) {
+              allPendingPronunciations.add({
+                'game': activeGames[i],
+                'cellKey': cellKey,
+                'attempt': attempt,
+              });
+            });
+          }
+        }
+        
+        if (allPendingPronunciations.isEmpty) return const SizedBox.shrink();
+        
+        return Container(
+          margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.red.shade50,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.red.shade200, width: 2),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.red.shade100,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Icon(
+                      Icons.priority_high,
+                      color: Colors.red.shade700,
+                      size: isTablet ? 24 : 20,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Pronunciation Approvals Needed',
+                          style: TextStyle(
+                            fontSize: isTablet ? 18 : 16,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.red.shade700,
+                          ),
+                        ),
+                        Text(
+                          '${allPendingPronunciations.length} student${allPendingPronunciations.length == 1 ? '' : 's'} waiting for your decision',
+                          style: TextStyle(
+                            fontSize: isTablet ? 14 : 12,
+                            color: Colors.red.shade600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              ...allPendingPronunciations.map((data) {
+                final game = data['game'] as GameSessionModel;
+                final cellKey = data['cellKey'] as String;
+                final attempt = data['attempt'] as PronunciationAttempt;
+                
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.red.shade200),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  '${attempt.playerName} → "${attempt.word}"',
+                                  style: TextStyle(
+                                    fontSize: isTablet ? 16 : 14,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.grey.shade800,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: Colors.blue.shade100,
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: Text(
+                                    'Game: ${game.gameName}',
+                                    style: TextStyle(
+                                      fontSize: isTablet ? 12 : 10,
+                                      color: Colors.blue.shade700,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: ElevatedButton.icon(
+                              onPressed: () => _approvePronunciation(game.gameId, cellKey, game.playerIds),
+                              icon: const Icon(Icons.check, size: 18),
+                              label: const Text('Correct'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.green.shade600,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(vertical: 12),
+                                textStyle: TextStyle(
+                                  fontSize: isTablet ? 16 : 14,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: ElevatedButton.icon(
+                              onPressed: () => _rejectPronunciation(game.gameId, cellKey, game.playerIds),
+                              icon: const Icon(Icons.close, size: 18),
+                              label: const Text('Wrong'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.red.shade600,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(vertical: 12),
+                                textStyle: TextStyle(
+                                  fontSize: isTablet ? 16 : 14,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                );
+              }).toList(),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Stream<List<GameStateModel?>> _combineGameStateStreams(List<GameSessionModel> games) {
+    if (games.isEmpty) {
+      return Stream.value([]);
+    }
+    
+    final streams = games.map((game) => 
+      GameStateService.getGameStateStream(game.gameId)
+    ).toList();
+    
+    return Stream.periodic(const Duration(milliseconds: 500), (i) => null)
+        .asyncMap((_) async {
+          final futures = streams.map((stream) => stream.first).toList();
+          return await Future.wait(futures);
+        });
+  }
+
+  Widget _buildVoiceRecordButton({
+    required TextEditingController controller,
+    required Function(VoidCallback) setDialogState,
+  }) {
+    return StatefulBuilder(
+      builder: (context, setState) {
+        bool isRecording = false;
+        
+        return Container(
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: isRecording 
+                ? Colors.red.withOpacity(0.1)
+                : AppColors.gamePrimary.withOpacity(0.1),
+          ),
+          child: IconButton(
+            onPressed: () async {
+              if (!isRecording) {
+                await _startVoiceRecording(
+                  controller: controller,
+                  onResult: (text) {
+                    setDialogState(() {
+                      // Text already set in controller by onResult callback
+                    });
+                  },
+                  onStart: () {
+                    setState(() {
+                      isRecording = true;
+                    });
+                  },
+                  onStop: () {
+                    setState(() {
+                      isRecording = false;
+                    });
+                  },
+                );
+              } else {
+                _stopVoiceRecording();
+                setState(() {
+                  isRecording = false;
+                });
+              }
+            },
+            icon: Icon(
+              isRecording ? Icons.stop : Icons.mic,
+              color: isRecording ? Colors.red : AppColors.gamePrimary,
+              size: 24,
+            ),
+            tooltip: isRecording ? 'Stop Recording' : 'Voice Input',
+          ),
+        );
+      },
     );
   }
 }

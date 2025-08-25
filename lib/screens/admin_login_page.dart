@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../config/app_colors.dart';
 import '../services/firestore_service.dart';
 import '../services/session_service.dart';
 import '../models/user_model.dart';
@@ -47,7 +48,7 @@ class _AdminLoginPageState extends State<AdminLoginPage> {
       
       if (!user.isAdmin) {
         setState(() {
-          _errorMessage = 'Access denied. Admin privileges required.';
+          _errorMessage = 'Access denied. Teacher privileges required.';
           _isLoading = false;
         });
         return;
@@ -55,10 +56,12 @@ class _AdminLoginPageState extends State<AdminLoginPage> {
       
       if (mounted) {
         // Save user and current route for session persistence
+        print('AdminLogin - Saving user: ${user.displayName}, isAdmin: ${user.isAdmin}');
         await SessionService.saveUser(user);
         await SessionService.saveCurrentRoute('/admin-dashboard');
         
         // Navigate to admin dashboard using named route
+        print('AdminLogin - Navigating to admin dashboard');
         Navigator.pushReplacementNamed(context, '/admin-dashboard');
       }
     } catch (e) {
@@ -74,11 +77,11 @@ class _AdminLoginPageState extends State<AdminLoginPage> {
     final isTablet = MediaQuery.of(context).size.shortestSide >= 600;
     
     return Scaffold(
-      backgroundColor: Colors.grey.shade100,
+      backgroundColor: AppColors.adminBackground,
       appBar: AppBar(
-        title: const Text('Admin Login'),
-        backgroundColor: Colors.red.shade700,
-        foregroundColor: Colors.white,
+        title: const Text('Teacher Login'),
+        backgroundColor: AppColors.adminPrimary,
+        foregroundColor: AppColors.onPrimary,
         elevation: 0,
       ),
       body: Center(
@@ -103,23 +106,23 @@ class _AdminLoginPageState extends State<AdminLoginPage> {
                       Icon(
                         Icons.admin_panel_settings,
                         size: isTablet ? 80 : 60,
-                        color: Colors.red.shade700,
+                        color: AppColors.adminPrimary,
                       ),
                       const SizedBox(height: 24),
                       Text(
-                        'Admin Access',
+                        'Teacher Access',
                         style: TextStyle(
                           fontSize: isTablet ? 28 : 24,
                           fontWeight: FontWeight.bold,
-                          color: Colors.grey.shade800,
+                          color: AppColors.textPrimary,
                         ),
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'Enter your admin email to continue',
+                        'Enter your email to continue',
                         style: TextStyle(
                           fontSize: isTablet ? 16 : 14,
-                          color: Colors.grey.shade600,
+                          color: AppColors.textSecondary,
                         ),
                       ),
                       const SizedBox(height: 32),
@@ -128,6 +131,8 @@ class _AdminLoginPageState extends State<AdminLoginPage> {
                         keyboardType: TextInputType.emailAddress,
                         autocorrect: false,
                         enabled: !_isLoading,
+                        textInputAction: TextInputAction.done,
+                        onFieldSubmitted: (_) => _handleLogin(),
                         decoration: InputDecoration(
                           labelText: 'Email Address',
                           hintText: 'admin@example.com',
@@ -136,7 +141,7 @@ class _AdminLoginPageState extends State<AdminLoginPage> {
                             borderRadius: BorderRadius.circular(8),
                           ),
                           filled: true,
-                          fillColor: Colors.grey.shade50,
+                          fillColor: AppColors.white,
                         ),
                         validator: (value) {
                           if (value == null || value.isEmpty) {
@@ -154,15 +159,15 @@ class _AdminLoginPageState extends State<AdminLoginPage> {
                         Container(
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
-                            color: Colors.red.shade50,
+                            color: AppColors.error.withOpacity(0.1),
                             borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: Colors.red.shade200),
+                            border: Border.all(color: AppColors.error.withOpacity(0.3)),
                           ),
                           child: Row(
                             children: [
                               Icon(
                                 Icons.error_outline,
-                                color: Colors.red.shade700,
+                                color: AppColors.error,
                                 size: 20,
                               ),
                               const SizedBox(width: 8),
@@ -170,7 +175,7 @@ class _AdminLoginPageState extends State<AdminLoginPage> {
                                 child: Text(
                                   _errorMessage!,
                                   style: TextStyle(
-                                    color: Colors.red.shade700,
+                                    color: AppColors.error,
                                     fontSize: 14,
                                   ),
                                 ),
@@ -186,7 +191,7 @@ class _AdminLoginPageState extends State<AdminLoginPage> {
                         child: ElevatedButton(
                           onPressed: _isLoading ? null : _handleLogin,
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.red.shade700,
+                            backgroundColor: AppColors.adminPrimary,
                             foregroundColor: Colors.white,
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(8),

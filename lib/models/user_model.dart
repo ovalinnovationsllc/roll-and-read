@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/material.dart';
 
 class UserModel {
   final String id;
@@ -10,6 +11,7 @@ class UserModel {
   final int gamesWon;
   final int wordsCorrect;
   final DateTime createdAt;
+  final Color? playerColor;
 
   UserModel({
     required this.id,
@@ -21,6 +23,7 @@ class UserModel {
     this.gamesWon = 0,
     this.wordsCorrect = 0,
     required this.createdAt,
+    this.playerColor,
   });
 
   // Create a new user
@@ -30,6 +33,7 @@ class UserModel {
     required String emailAddress,
     required String pin,
     bool isAdmin = false,
+    Color? playerColor,
   }) {
     return UserModel(
       id: id,
@@ -41,6 +45,7 @@ class UserModel {
       gamesWon: 0,
       wordsCorrect: 0,
       createdAt: DateTime.now(),
+      playerColor: playerColor,
     );
   }
 
@@ -56,6 +61,7 @@ class UserModel {
       'gamesWon': gamesWon,
       'wordsCorrect': wordsCorrect,
       'createdAt': Timestamp.fromDate(createdAt),
+      'playerColor': playerColor?.value,
     };
   }
 
@@ -81,14 +87,56 @@ class UserModel {
       gamesWon: (map['gamesWon'] ?? 0).toInt(),
       wordsCorrect: (map['wordsCorrect'] ?? 0).toInt(),
       createdAt: parseDateTime(map['createdAt']),
+      playerColor: map['playerColor'] != null ? Color(map['playerColor']) : null,
     );
   }
 
-  // Convert to JSON
-  Map<String, dynamic> toJson() => toMap();
+  // Convert to JSON (for session storage - uses ISO strings instead of Timestamps)
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'displayName': displayName,
+      'emailAddress': emailAddress,
+      'pin': pin,
+      'isAdmin': isAdmin,
+      'gamesPlayed': gamesPlayed,
+      'gamesWon': gamesWon,
+      'wordsCorrect': wordsCorrect,
+      'createdAt': createdAt.toIso8601String(),
+      'playerColor': playerColor?.value,
+    };
+  }
 
-  // Create from JSON
-  factory UserModel.fromJson(Map<String, dynamic> json) => UserModel.fromMap(json);
+  // Create from JSON (for session storage - handles ISO strings)
+  factory UserModel.fromJson(Map<String, dynamic> json) {
+    DateTime parseDateTime(dynamic value) {
+      if (value == null) return DateTime.now();
+      if (value is String) {
+        try {
+          return DateTime.parse(value);
+        } catch (e) {
+          return DateTime.now();
+        }
+      }
+      if (value is Timestamp) {
+        return value.toDate();
+      }
+      return DateTime.now();
+    }
+
+    return UserModel(
+      id: json['id'] ?? '',
+      displayName: json['displayName'] ?? '',
+      emailAddress: json['emailAddress'] ?? '',
+      pin: json['pin'] ?? '',
+      isAdmin: json['isAdmin'] ?? false,
+      gamesPlayed: (json['gamesPlayed'] ?? 0).toInt(),
+      gamesWon: (json['gamesWon'] ?? 0).toInt(),
+      wordsCorrect: (json['wordsCorrect'] ?? 0).toInt(),
+      createdAt: parseDateTime(json['createdAt']),
+      playerColor: json['playerColor'] != null ? Color(json['playerColor']) : null,
+    );
+  }
 
   // Copy with method for updating user data
   UserModel copyWith({
@@ -101,6 +149,7 @@ class UserModel {
     int? gamesWon,
     int? wordsCorrect,
     DateTime? createdAt,
+    Color? playerColor,
   }) {
     return UserModel(
       id: id ?? this.id,
@@ -112,6 +161,7 @@ class UserModel {
       gamesWon: gamesWon ?? this.gamesWon,
       wordsCorrect: wordsCorrect ?? this.wordsCorrect,
       createdAt: createdAt ?? this.createdAt,
+      playerColor: playerColor ?? this.playerColor,
     );
   }
 

@@ -46,8 +46,10 @@ class AppConfig {
     } catch (e) {
       print('Error loading Firebase API key: $e');
     }
-    // No hardcoded API keys - app requires environment configuration  
-    throw Exception('Firebase API key not found in environment variables');
+    // Environment file not loaded - show helpful error
+    print('WARNING: Firebase API key not found. App may not work correctly.');
+    print('Please ensure .env file exists and restart the app.');
+    return '';
   }
 
   static String get firebaseAuthDomain {
@@ -61,7 +63,7 @@ class AppConfig {
     } catch (e) {
       print('Error loading Firebase auth domain: $e');
     }
-    throw Exception('Firebase auth domain not found in environment variables');
+    return '';
   }
 
   static String get firebaseProjectId {
@@ -75,7 +77,7 @@ class AppConfig {
     } catch (e) {
       print('Error loading Firebase project ID: $e');
     }
-    throw Exception('Firebase project ID not found in environment variables');
+    return '';
   }
 
   static String get firebaseStorageBucket {
@@ -89,7 +91,7 @@ class AppConfig {
     } catch (e) {
       print('Error loading Firebase storage bucket: $e');
     }
-    throw Exception('Firebase storage bucket not found in environment variables');
+    return '';
   }
 
   static String get firebaseMessagingSenderId {
@@ -103,7 +105,7 @@ class AppConfig {
     } catch (e) {
       print('Error loading Firebase messaging sender ID: $e');
     }
-    throw Exception('Firebase messaging sender ID not found in environment variables');
+    return '';
   }
 
   static String get firebaseAppId {
@@ -117,6 +119,6 @@ class AppConfig {
     } catch (e) {
       print('Error loading Firebase app ID: $e');
     }
-    throw Exception('Firebase app ID not found in environment variables');
+    return '';
   }
 }

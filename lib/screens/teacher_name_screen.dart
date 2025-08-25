@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../config/app_colors.dart';
 import '../widgets/pencil_letter.dart';
 import 'roll_and_read_game.dart';
 
@@ -33,10 +34,10 @@ class TeacherNameScreen extends StatelessWidget {
             width: double.infinity,
             height: double.infinity,
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: AppColors.white,
               boxShadow: [
                 BoxShadow(
-                  color: Colors.grey.withOpacity(0.1),
+                  color: AppColors.lightGray.withOpacity(0.1),
                   blurRadius: 10,
                   offset: const Offset(0, 5),
                 ),
@@ -51,9 +52,9 @@ class TeacherNameScreen extends StatelessWidget {
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
                       colors: [
-                        Colors.white,
-                        Colors.grey.shade50,
-                        Colors.white,
+                        AppColors.white,
+                        AppColors.lightGray.withOpacity(0.1),
+                        AppColors.white,
                       ],
                       stops: const [0.0, 0.5, 1.0],
                     ),
@@ -84,8 +85,8 @@ class TeacherNameScreen extends StatelessWidget {
                         );
                       },
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.green.shade600,
-                        foregroundColor: Colors.white,
+                        backgroundColor: AppColors.gamePrimary,
+                        foregroundColor: AppColors.onPrimary,
                         padding: const EdgeInsets.symmetric(
                           horizontal: 40,
                           vertical: 15,

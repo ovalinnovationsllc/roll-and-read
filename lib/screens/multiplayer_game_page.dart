@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../config/app_colors.dart';
 import '../models/user_model.dart';
 import '../models/game_session_model.dart';
 import '../services/game_session_service.dart';
@@ -39,12 +40,33 @@ class _MultiplayerGamePageState extends State<MultiplayerGamePage> {
             child: const Text('Cancel'),
           ),
           ElevatedButton(
-            onPressed: () {
+            onPressed: () async {
               Navigator.pop(context); // Close dialog
-              Navigator.pop(context); // Go back to main menu
+              
+              try {
+                // Leave the game session
+                await GameSessionService.leaveGameSession(
+                  gameId: widget.gameSession.gameId,
+                  playerId: widget.user.id,
+                );
+                
+                if (mounted) {
+                  Navigator.pop(context); // Go back to main menu
+                }
+              } catch (e) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Error leaving game: ${e.toString().replaceFirst('Exception: ', '')}'),
+                      backgroundColor: AppColors.error,
+                    ),
+                  );
+                  Navigator.pop(context); // Go back anyway
+                }
+              }
             },
             style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red.shade600,
+              backgroundColor: AppColors.error,
               foregroundColor: Colors.white,
             ),
             child: const Text('Leave'),
@@ -66,20 +88,38 @@ class _MultiplayerGamePageState extends State<MultiplayerGamePage> {
         }
 
         if (!snapshot.hasData || snapshot.data == null) {
+          // Game was deleted - automatically go back to main menu
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              Navigator.pop(context);
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Game session ended - all players have left'),
+                  backgroundColor: AppColors.warning,
+                ),
+              );
+            }
+          });
+          
           return Scaffold(
             appBar: AppBar(
-              title: const Text('Game Not Found'),
-              backgroundColor: Colors.red.shade600,
+              title: const Text('Game Ended'),
+              backgroundColor: AppColors.mediumBlue,
             ),
             body: const Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(Icons.error, size: 64, color: Colors.red),
+                  Icon(Icons.info, size: 64, color: AppColors.mediumBlue),
                   SizedBox(height: 16),
                   Text(
-                    'This game session no longer exists.',
+                    'Game session ended.',
                     style: TextStyle(fontSize: 18),
+                  ),
+                  SizedBox(height: 8),
+                  Text(
+                    'Returning to main menu...',
+                    style: TextStyle(fontSize: 14),
                   ),
                 ],
               ),
@@ -106,11 +146,11 @@ class _MultiplayerGamePageState extends State<MultiplayerGamePage> {
     final isTablet = MediaQuery.of(context).size.shortestSide >= 600;
     
     return Scaffold(
-      backgroundColor: Colors.blue.shade50,
+      backgroundColor: AppColors.gameBackground,
       appBar: AppBar(
         title: Text(gameSession.gameName),
-        backgroundColor: Colors.blue.shade600,
-        foregroundColor: Colors.white,
+        backgroundColor: AppColors.gamePrimary,
+        foregroundColor: AppColors.onPrimary,
         actions: [
           IconButton(
             icon: const Icon(Icons.exit_to_app),
@@ -132,7 +172,7 @@ class _MultiplayerGamePageState extends State<MultiplayerGamePage> {
                   Icon(
                     Icons.hourglass_empty,
                     size: isTablet ? 80 : 60,
-                    color: Colors.blue.shade600,
+                    color: AppColors.gamePrimary,
                   ),
                   const SizedBox(height: 24),
                   Text(
@@ -140,30 +180,30 @@ class _MultiplayerGamePageState extends State<MultiplayerGamePage> {
                     style: TextStyle(
                       fontSize: isTablet ? 28 : 24,
                       fontWeight: FontWeight.bold,
-                      color: Colors.grey.shade800,
+                      color: AppColors.textPrimary,
                     ),
                   ),
                   const SizedBox(height: 16),
                   Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
-                      color: Colors.blue.shade100,
+                      color: AppColors.gamePrimary.withOpacity(0.1),
                       borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.blue.shade200),
+                      border: Border.all(color: AppColors.gamePrimary.withOpacity(0.3)),
                     ),
                     child: Column(
                       children: [
                         Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Icon(Icons.tag, color: Colors.blue.shade700),
+                            Icon(Icons.tag, color: AppColors.gamePrimary),
                             const SizedBox(width: 8),
                             Text(
                               'Game ID: ${gameSession.gameId}',
                               style: TextStyle(
                                 fontSize: isTablet ? 20 : 18,
                                 fontWeight: FontWeight.bold,
-                                color: Colors.blue.shade700,
+                                color: AppColors.gamePrimary,
                               ),
                             ),
                           ],
@@ -173,7 +213,7 @@ class _MultiplayerGamePageState extends State<MultiplayerGamePage> {
                           'Share this ID with other players',
                           style: TextStyle(
                             fontSize: 14,
-                            color: Colors.blue.shade600,
+                            color: AppColors.gamePrimary,
                           ),
                         ),
                       ],
@@ -185,7 +225,7 @@ class _MultiplayerGamePageState extends State<MultiplayerGamePage> {
                     style: TextStyle(
                       fontSize: isTablet ? 18 : 16,
                       fontWeight: FontWeight.bold,
-                      color: Colors.grey.shade700,
+                      color: AppColors.textSecondary,
                     ),
                   ),
                   const SizedBox(height: 12),
@@ -195,13 +235,13 @@ class _MultiplayerGamePageState extends State<MultiplayerGamePage> {
                       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                       decoration: BoxDecoration(
                         color: player.userId == widget.user.id 
-                            ? Colors.green.shade100 
-                            : Colors.grey.shade100,
+                            ? AppColors.gamePrimary.withOpacity(0.1)
+                            : AppColors.lightGray.withOpacity(0.3),
                         borderRadius: BorderRadius.circular(8),
                         border: Border.all(
                           color: player.userId == widget.user.id 
-                              ? Colors.green.shade300 
-                              : Colors.grey.shade300,
+                              ? AppColors.gamePrimary.withOpacity(0.3)
+                              : AppColors.lightGray,
                         ),
                       ),
                       child: Row(
@@ -209,8 +249,8 @@ class _MultiplayerGamePageState extends State<MultiplayerGamePage> {
                           Icon(
                             Icons.person,
                             color: player.userId == widget.user.id 
-                                ? Colors.green.shade700 
-                                : Colors.grey.shade700,
+                                ? AppColors.gamePrimary
+                                : AppColors.textSecondary,
                           ),
                           const SizedBox(width: 8),
                           Text(
@@ -218,8 +258,8 @@ class _MultiplayerGamePageState extends State<MultiplayerGamePage> {
                             style: TextStyle(
                               fontWeight: FontWeight.w500,
                               color: player.userId == widget.user.id 
-                                  ? Colors.green.shade700 
-                                  : Colors.grey.shade700,
+                                  ? AppColors.gamePrimary
+                                  : AppColors.textSecondary,
                             ),
                           ),
                           if (player.userId == widget.user.id) ...[
@@ -228,7 +268,7 @@ class _MultiplayerGamePageState extends State<MultiplayerGamePage> {
                               '(You)',
                               style: TextStyle(
                                 fontStyle: FontStyle.italic,
-                                color: Colors.green.shade600,
+                                color: AppColors.gamePrimary,
                               ),
                             ),
                           ],
@@ -239,10 +279,10 @@ class _MultiplayerGamePageState extends State<MultiplayerGamePage> {
                   const SizedBox(height: 24),
                   if (gameSession.players.length >= 1) ...[
                     Text(
-                      'Waiting for teacher to start the game...',
+                      'Waiting for Mrs. Elson to start the game...',
                       style: TextStyle(
                         fontSize: 16,
-                        color: Colors.grey.shade600,
+                        color: AppColors.textSecondary,
                         fontStyle: FontStyle.italic,
                       ),
                       textAlign: TextAlign.center,
@@ -254,7 +294,7 @@ class _MultiplayerGamePageState extends State<MultiplayerGamePage> {
                       'Waiting for more players to join...',
                       style: TextStyle(
                         fontSize: 16,
-                        color: Colors.grey.shade600,
+                        color: AppColors.textSecondary,
                         fontStyle: FontStyle.italic,
                       ),
                       textAlign: TextAlign.center,
@@ -274,7 +314,12 @@ class _MultiplayerGamePageState extends State<MultiplayerGamePage> {
       appBar: AppBar(
         title: Row(
           children: [
-            Text(gameSession.gameName),
+            Flexible(
+              child: Text(
+                gameSession.gameName,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
             const SizedBox(width: 8),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
@@ -289,8 +334,8 @@ class _MultiplayerGamePageState extends State<MultiplayerGamePage> {
             ),
           ],
         ),
-        backgroundColor: Colors.green.shade600,
-        foregroundColor: Colors.white,
+        backgroundColor: AppColors.gamePrimary,
+        foregroundColor: AppColors.onPrimary,
         actions: [
           IconButton(
             icon: const Icon(Icons.exit_to_app),
@@ -302,40 +347,6 @@ class _MultiplayerGamePageState extends State<MultiplayerGamePage> {
       body: Column(
         children: [
           // Player status bar
-          Container(
-            padding: const EdgeInsets.all(16),
-            color: Colors.green.shade50,
-            child: Row(
-              children: gameSession.players.map((player) => Expanded(
-                child: Container(
-                  margin: const EdgeInsets.symmetric(horizontal: 4),
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: player.userId == widget.user.id 
-                        ? Colors.green.shade200 
-                        : Colors.grey.shade200,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Column(
-                    children: [
-                      Text(
-                        player.displayName,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 12,
-                        ),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      Text(
-                        'Words: ${player.wordsRead}',
-                        style: const TextStyle(fontSize: 10),
-                      ),
-                    ],
-                  ),
-                ),
-              )).toList(),
-            ),
-          ),
           // Game content
           Expanded(
             child: MultiplayerRollAndRead(
@@ -354,11 +365,11 @@ class _MultiplayerGamePageState extends State<MultiplayerGamePage> {
         .firstOrNull;
     
     return Scaffold(
-      backgroundColor: Colors.purple.shade50,
+      backgroundColor: AppColors.gameBackground,
       appBar: AppBar(
         title: const Text('Game Completed'),
-        backgroundColor: Colors.purple.shade600,
-        foregroundColor: Colors.white,
+        backgroundColor: AppColors.gamePrimary,
+        foregroundColor: AppColors.onPrimary,
       ),
       body: Center(
         child: Card(
@@ -371,7 +382,7 @@ class _MultiplayerGamePageState extends State<MultiplayerGamePage> {
                 Icon(
                   Icons.emoji_events,
                   size: 80,
-                  color: Colors.purple.shade600,
+                  color: AppColors.gamePrimary,
                 ),
                 const SizedBox(height: 24),
                 Text(
@@ -379,7 +390,7 @@ class _MultiplayerGamePageState extends State<MultiplayerGamePage> {
                   style: TextStyle(
                     fontSize: 28,
                     fontWeight: FontWeight.bold,
-                    color: Colors.grey.shade800,
+                    color: AppColors.textPrimary,
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -389,7 +400,7 @@ class _MultiplayerGamePageState extends State<MultiplayerGamePage> {
                     style: TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.bold,
-                      color: Colors.purple.shade700,
+                      color: AppColors.gamePrimary,
                     ),
                   ),
                 ] else ...[
@@ -413,11 +424,11 @@ class _MultiplayerGamePageState extends State<MultiplayerGamePage> {
 
   Widget _buildGameCancelled(GameSessionModel gameSession) {
     return Scaffold(
-      backgroundColor: Colors.red.shade50,
+      backgroundColor: AppColors.gameBackground,
       appBar: AppBar(
         title: const Text('Game Cancelled'),
-        backgroundColor: Colors.red.shade600,
-        foregroundColor: Colors.white,
+        backgroundColor: AppColors.gamePrimary,
+        foregroundColor: AppColors.onPrimary,
       ),
       body: const Center(
         child: Card(
@@ -427,19 +438,19 @@ class _MultiplayerGamePageState extends State<MultiplayerGamePage> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.cancel, size: 80, color: Colors.red),
+                Icon(Icons.cancel, size: 80, color: AppColors.error),
                 SizedBox(height: 24),
                 Text(
                   'Game Cancelled',
                   style: TextStyle(
                     fontSize: 28,
                     fontWeight: FontWeight.bold,
-                    color: Colors.red,
+                    color: AppColors.error,
                   ),
                 ),
                 SizedBox(height: 16),
                 Text(
-                  'This game was cancelled by the teacher.',
+                  'This game was cancelled by Mrs. Elson.',
                   style: TextStyle(fontSize: 16),
                   textAlign: TextAlign.center,
                 ),

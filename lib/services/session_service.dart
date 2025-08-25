@@ -1,8 +1,7 @@
 import 'dart:convert';
-import 'package:flutter/foundation.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../models/user_model.dart';
 import '../models/game_session_model.dart';
+import '../utils/safe_print.dart';
 
 // Conditional import for web-specific localStorage
 import 'session_service_web.dart' if (dart.library.io) 'session_service_mobile.dart' as platform;
@@ -15,10 +14,10 @@ class SessionService {
   // Save user session
   static Future<void> saveUser(UserModel user) async {
     try {
-      final userJson = json.encode(user.toMap());
+      final userJson = json.encode(user.toJson());
       await platform.setString(_userKey, userJson);
     } catch (e) {
-      print('Error saving user session: $e');
+      safeError('Error saving user session: $e');
     }
   }
 
@@ -31,7 +30,7 @@ class SessionService {
         return UserModel.fromMap(userMap);
       }
     } catch (e) {
-      print('Error loading user session: $e');
+      safeError('Error loading user session: $e');
     }
     return null;
   }
@@ -39,10 +38,10 @@ class SessionService {
   // Save game session
   static Future<void> saveGameSession(GameSessionModel gameSession) async {
     try {
-      final gameJson = json.encode(gameSession.toMap());
+      final gameJson = json.encode(gameSession.toJson());
       await platform.setString(_gameSessionKey, gameJson);
     } catch (e) {
-      print('Error saving game session: $e');
+      safeError('Error saving game session: $e');
     }
   }
 
@@ -52,10 +51,10 @@ class SessionService {
       final gameJson = await platform.getString(_gameSessionKey);
       if (gameJson != null) {
         final gameMap = json.decode(gameJson) as Map<String, dynamic>;
-        return GameSessionModel.fromMap(gameMap);
+        return GameSessionModel.fromJson(gameMap);
       }
     } catch (e) {
-      print('Error loading game session: $e');
+      safeError('Error loading game session: $e');
     }
     return null;
   }
@@ -65,7 +64,7 @@ class SessionService {
     try {
       await platform.setString(_currentRouteKey, route);
     } catch (e) {
-      print('Error saving current route: $e');
+      safeError('Error saving current route: $e');
     }
   }
 
@@ -74,7 +73,7 @@ class SessionService {
     try {
       return await platform.getString(_currentRouteKey);
     } catch (e) {
-      print('Error loading current route: $e');
+      safeError('Error loading current route: $e');
     }
     return null;
   }
@@ -86,7 +85,7 @@ class SessionService {
       await platform.remove(_gameSessionKey);
       await platform.remove(_currentRouteKey);
     } catch (e) {
-      print('Error clearing session: $e');
+      safeError('Error clearing session: $e');
     }
   }
 
@@ -104,22 +103,65 @@ class SessionService {
 
   // Get initial route based on session state
   static Future<String> getInitialRoute() async {
-    final savedRoute = await getCurrentRoute();
-    final user = await getUser();
-    final gameSession = await getGameSession();
+    try {
+      final savedRoute = await getCurrentRoute();
+      final user = await getUser();
+      final gameSession = await getGameSession();
 
-    // If we have a saved route and valid session data, use it
-    if (savedRoute != null && user != null) {
-      if (savedRoute.startsWith('/multiplayer-game') && gameSession != null) {
-        return savedRoute;
-      } else if (savedRoute.startsWith('/admin-dashboard') && user.isAdmin) {
-        return savedRoute;
-      } else if (savedRoute == '/game-join' || savedRoute == '/user-login') {
-        return savedRoute;
+      // If we have a saved route and valid session data, use it
+      if (savedRoute != null && user != null) {
+        if (savedRoute.startsWith('/multiplayer-game') && gameSession != null) {
+          return savedRoute;
+        } else if (savedRoute.startsWith('/admin-dashboard') && user.isAdmin) {
+          return savedRoute;
+        } else if (savedRoute == '/game-join' || savedRoute == '/user-login') {
+          return savedRoute;
+        }
       }
-    }
 
-    // Default to home page
-    return '/';
+      // Default to home page
+      return '/';
+    } catch (e) {
+      safeError('Error determining initial route: $e');
+      // If there's any error, just go to home page
+      return '/';
+    }
+  }
+
+  // Get initial route that's safe for Firebase initialization state
+  static Future<String> getInitialRouteSafe(bool isFirebaseReady) async {
+    try {
+      final savedRoute = await getCurrentRoute();
+      final user = await getUser();
+      final gameSession = await getGameSession();
+
+      // If Firebase isn't ready, avoid Firebase-dependent routes
+      if (!isFirebaseReady) {
+        // Clear any Firebase-dependent saved routes and default to home
+        if (savedRoute != null && (savedRoute.startsWith('/multiplayer-game') || 
+            savedRoute.startsWith('/admin-dashboard'))) {
+          await clearSession(); // Clear potentially stale session data
+        }
+        return '/';
+      }
+
+      // If we have a saved route and valid session data, use it
+      if (savedRoute != null && user != null) {
+        if (savedRoute.startsWith('/multiplayer-game') && gameSession != null) {
+          return savedRoute;
+        } else if (savedRoute.startsWith('/admin-dashboard') && user.isAdmin) {
+          return savedRoute;
+        } else if (savedRoute == '/game-join' || savedRoute == '/user-login') {
+          return savedRoute;
+        }
+      }
+
+      // Default to home page
+      return '/';
+    } catch (e) {
+      safeError('Error determining initial route: $e');
+      // If there's any error, just go to home page
+      return '/';
+    }
   }
 }

@@ -13,7 +13,7 @@ class AIWordService {
   // Get demo mode setting from configuration
   static bool get _useDemoMode => AppConfig.useDemoMode;
   
-  /// Generate a 6x6 grid of words based on teacher's prompt
+  /// Generate a 6x6 grid of words based on Mrs. Elson's prompt
   /// Returns a 6x6 matrix of words suitable for reading practice
   static Future<List<List<String>>> generateWordGrid({
     required String prompt,
@@ -69,14 +69,14 @@ class AIWordService {
   }
   
   /// Build the main prompt for Gemini word generation
-  static String _buildGeminiPrompt(String teacherPrompt, String difficulty) {
+  static String _buildGeminiPrompt(String prompt, String difficulty) {
     return '''
 Create a reading game word grid for $difficulty students.
-Teacher's topic: "$teacherPrompt"
+Mrs. Elson's topic: "$prompt"
 
 Generate exactly 36 educational words that are:
 - Appropriate for $difficulty reading level
-- Related to: "$teacherPrompt"
+- Related to: "$prompt"
 - Simple, clear, and safe for children
 - Varied but thematically connected
 
@@ -88,14 +88,14 @@ No extra text, just the 36 comma-separated words.
   }
   
   /// Build prompt for generating specific column words with Gemini
-  static String _buildGeminiColumnPrompt(String teacherPrompt, int column, String difficulty) {
+  static String _buildGeminiColumnPrompt(String prompt, int column, String difficulty) {
     return '''
 Create 6 reading words for $difficulty students.
-Topic: "$teacherPrompt" (Column $column)
+Topic: "$prompt" (Column $column)
 
 Generate exactly 6 educational words that are:
 - Appropriate for $difficulty reading level  
-- Related to: "$teacherPrompt"
+- Related to: "$prompt"
 - Simple, clear, and safe for children
 - Thematically connected
 
@@ -270,7 +270,7 @@ No extra text, just the 6 comma-separated words.
     ];
   }
   
-  /// Get suggested prompt templates for teachers
+  /// Get suggested prompt templates for Mrs. Elson
   static List<String> getPromptTemplates() {
     return [
       'Animals and their sounds',

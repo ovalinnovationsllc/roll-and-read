@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
+import '../services/sound_service.dart';
 
 class AnimatedDice extends StatefulWidget {
   final int value;
@@ -72,6 +73,8 @@ class _AnimatedDiceState extends State<AnimatedDice>
 
   void _startRolling() {
     _rotationController.repeat();
+    // Play dice rolling sound
+    SoundService.playDiceRoll();
     setState(() {
       _displayValue = 0;
     });
@@ -127,7 +130,7 @@ class _AnimatedDiceState extends State<AnimatedDice>
                 child: Center(
                   child: widget.isRolling
                       ? Icon(
-                          Icons.question_mark,
+                          Icons.casino,
                           size: widget.size * 0.4,
                           color: Colors.grey.shade400,
                         )

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../config/app_colors.dart';
 import '../services/firestore_service.dart';
 import '../services/session_service.dart';
 import '../models/user_model.dart';
@@ -37,12 +38,16 @@ class _UserLoginPageState extends State<UserLoginPage> {
       final email = _emailController.text.trim();
       final pin = _pinController.text.trim();
       
+      print('🔍 Login attempt: email="$email", pin="$pin"');
+      
       // Get user from Firestore
       final user = await FirestoreService.getUserByEmail(email);
       
+      print('🔍 User lookup result: ${user?.displayName ?? "null"}');
+      
       if (user == null) {
         setState(() {
-          _errorMessage = 'User not found. Please contact your teacher to create an account.';
+          _errorMessage = 'User not found. Please check your email address or contact Mrs. Elson.';
           _isLoading = false;
         });
         return;
@@ -73,17 +78,81 @@ class _UserLoginPageState extends State<UserLoginPage> {
     }
   }
 
+  void _showUsersList() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Available Users'),
+        content: SizedBox(
+          width: 400,
+          height: 300,
+          child: StreamBuilder<List<UserModel>>(
+            stream: FirestoreService.getAllUsers(),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              
+              if (snapshot.hasError) {
+                return Center(
+                  child: Text('Error: ${snapshot.error}'),
+                );
+              }
+              
+              final users = snapshot.data ?? [];
+              
+              if (users.isEmpty) {
+                return const Center(
+                  child: Text('No users found'),
+                );
+              }
+              
+              return ListView.builder(
+                itemCount: users.length,
+                itemBuilder: (context, index) {
+                  final user = users[index];
+                  return ListTile(
+                    leading: CircleAvatar(
+                      backgroundColor: user.isAdmin ? AppColors.adminPrimary.withOpacity(0.1) : AppColors.studentPrimary.withOpacity(0.1),
+                      child: Icon(
+                        user.isAdmin ? Icons.admin_panel_settings : Icons.person,
+                        color: user.isAdmin ? AppColors.adminPrimary : AppColors.studentPrimary,
+                      ),
+                    ),
+                    title: Text(user.displayName),
+                    subtitle: Text('${user.emailAddress}\nPIN: ${user.pin}'),
+                    isThreeLine: true,
+                    onTap: () {
+                      Navigator.pop(context);
+                      _emailController.text = user.emailAddress;
+                      _pinController.text = user.pin;
+                    },
+                  );
+                },
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     final isTablet = MediaQuery.of(context).size.shortestSide >= 600;
     
     return Scaffold(
-      backgroundColor: Colors.green.shade50,
+      backgroundColor: AppColors.studentBackground,
       appBar: AppBar(
         title: const Text('Student Login'),
-        backgroundColor: Colors.green.shade600,
-        foregroundColor: Colors.white,
+        backgroundColor: AppColors.studentPrimary,
+        foregroundColor: AppColors.onPrimary,
         elevation: 0,
       ),
       body: Center(
@@ -108,7 +177,7 @@ class _UserLoginPageState extends State<UserLoginPage> {
                       Icon(
                         Icons.school,
                         size: isTablet ? 80 : 60,
-                        color: Colors.green.shade600,
+                        color: AppColors.studentPrimary,
                       ),
                       const SizedBox(height: 24),
                       Text(
@@ -133,6 +202,7 @@ class _UserLoginPageState extends State<UserLoginPage> {
                         keyboardType: TextInputType.emailAddress,
                         autocorrect: false,
                         enabled: !_isLoading,
+                        textInputAction: TextInputAction.next,
                         decoration: InputDecoration(
                           labelText: 'Email Address',
                           hintText: 'student@school.com',
@@ -162,6 +232,8 @@ class _UserLoginPageState extends State<UserLoginPage> {
                         enabled: !_isLoading,
                         maxLength: 4,
                         obscureText: true,
+                        textInputAction: TextInputAction.done,
+                        onFieldSubmitted: (_) => _handleLogin(),
                         decoration: InputDecoration(
                           labelText: '4-Digit PIN',
                           hintText: 'Enter your PIN',
@@ -191,15 +263,15 @@ class _UserLoginPageState extends State<UserLoginPage> {
                         Container(
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
-                            color: Colors.orange.shade50,
+                            color: AppColors.mediumBlue.withOpacity(0.1),
                             borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: Colors.orange.shade200),
+                            border: Border.all(color: AppColors.mediumBlue.withOpacity(0.3)),
                           ),
                           child: Row(
                             children: [
                               Icon(
                                 Icons.info_outline,
-                                color: Colors.orange.shade700,
+                                color: AppColors.mediumBlue,
                                 size: 20,
                               ),
                               const SizedBox(width: 8),
@@ -207,7 +279,7 @@ class _UserLoginPageState extends State<UserLoginPage> {
                                 child: Text(
                                   _errorMessage!,
                                   style: TextStyle(
-                                    color: Colors.orange.shade700,
+                                    color: AppColors.mediumBlue,
                                     fontSize: 14,
                                   ),
                                 ),
@@ -223,7 +295,7 @@ class _UserLoginPageState extends State<UserLoginPage> {
                         child: ElevatedButton(
                           onPressed: _isLoading ? null : _handleLogin,
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.green.shade600,
+                            backgroundColor: AppColors.studentPrimary,
                             foregroundColor: Colors.white,
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(8),
@@ -250,19 +322,38 @@ class _UserLoginPageState extends State<UserLoginPage> {
                         ),
                       ),
                       const SizedBox(height: 16),
-                      TextButton(
-                        onPressed: _isLoading
-                            ? null
-                            : () {
-                                Navigator.pop(context);
-                              },
-                        child: Text(
-                          'Back to Home',
-                          style: TextStyle(
-                            color: Colors.grey.shade700,
-                            fontSize: isTablet ? 16 : 14,
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: [
+                          TextButton(
+                            onPressed: _isLoading
+                                ? null
+                                : () {
+                                    Navigator.pop(context);
+                                  },
+                            child: Text(
+                              'Back to Home',
+                              style: TextStyle(
+                                color: Colors.grey.shade700,
+                                fontSize: isTablet ? 16 : 14,
+                              ),
+                            ),
                           ),
-                        ),
+                          TextButton(
+                            onPressed: _isLoading
+                                ? null
+                                : () {
+                                    _showUsersList();
+                                  },
+                            child: Text(
+                              'Show Users',
+                              style: TextStyle(
+                                color: Colors.blue.shade600,
+                                fontSize: isTablet ? 16 : 14,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),
@@ -292,7 +383,7 @@ class _RollAndReadGameWithUserState extends State<RollAndReadGameWithUser> {
     return Scaffold(
       appBar: AppBar(
         title: Text("Welcome, ${widget.user.displayName}!"),
-        backgroundColor: Colors.green.shade600,
+        backgroundColor: AppColors.studentPrimary,
         foregroundColor: Colors.white,
         actions: [
           IconButton(
@@ -314,7 +405,7 @@ class _RollAndReadGameWithUserState extends State<RollAndReadGameWithUser> {
                         Navigator.pop(context);
                       },
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.red.shade600,
+                        backgroundColor: AppColors.error,
                         foregroundColor: Colors.white,
                       ),
                       child: const Text('Logout'),

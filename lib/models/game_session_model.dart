@@ -91,6 +91,123 @@ class GameSessionModel {
     };
   }
 
+  // Convert to JSON (for session storage - uses ISO strings instead of Timestamps)
+  Map<String, dynamic> toJson() {
+    // Flatten the 2D array for storage (similar to toMap but with ISO strings)
+    List<String>? flatWordGrid;
+    if (wordGrid != null) {
+      flatWordGrid = [];
+      for (var row in wordGrid!) {
+        flatWordGrid.addAll(row);
+      }
+    }
+    
+    return {
+      'gameId': gameId,
+      'createdBy': createdBy,
+      'gameName': gameName,
+      'playerIds': playerIds,
+      'players': players.map((p) => p.toJson()).toList(),
+      'status': status.toString(),
+      'createdAt': createdAt.toIso8601String(),
+      'startedAt': startedAt?.toIso8601String(),
+      'endedAt': endedAt?.toIso8601String(),
+      'winnerId': winnerId,
+      'useAIWords': useAIWords,
+      'aiPrompt': aiPrompt,
+      'difficulty': difficulty,
+      'wordGrid': flatWordGrid, // Store as flat array
+      'wordGridRows': 6, // Store dimensions for reconstruction
+      'wordGridCols': 6,
+      'maxPlayers': maxPlayers,
+    };
+  }
+
+  // Create from JSON (for session storage - handles ISO strings)
+  factory GameSessionModel.fromJson(Map<String, dynamic> json) {
+    DateTime parseDateTime(dynamic value) {
+      if (value == null) return DateTime.now();
+      if (value is String) {
+        try {
+          return DateTime.parse(value);
+        } catch (e) {
+          return DateTime.now();
+        }
+      }
+      if (value is Timestamp) return value.toDate();
+      return DateTime.now();
+    }
+
+    DateTime? parseNullableDateTime(dynamic value) {
+      if (value == null) return null;
+      if (value is String) {
+        try {
+          return DateTime.parse(value);
+        } catch (e) {
+          return null;
+        }
+      }
+      if (value is Timestamp) return value.toDate();
+      return null;
+    }
+
+    List<PlayerInGame> parsePlayersList(dynamic playersData) {
+      if (playersData == null) return [];
+      if (playersData is! List) return [];
+      return playersData
+          .map((p) => PlayerInGame.fromJson(p as Map<String, dynamic>))
+          .toList();
+    }
+
+    List<List<String>>? parseWordGrid(dynamic gridData, Map<String, dynamic> map) {
+      if (gridData == null) return null;
+      if (gridData is! List) return null;
+      
+      try {
+        // Reconstruct 2D array from flat array
+        final flatGrid = List<String>.from(gridData);
+        final rows = (map['wordGridRows'] ?? 6) as int;
+        final cols = (map['wordGridCols'] ?? 6) as int;
+        
+        if (flatGrid.length != rows * cols) {
+          // If size doesn't match, return null
+          return null;
+        }
+        
+        List<List<String>> grid = [];
+        for (int i = 0; i < rows; i++) {
+          final startIdx = i * cols;
+          final endIdx = startIdx + cols;
+          grid.add(flatGrid.sublist(startIdx, endIdx));
+        }
+        return grid;
+      } catch (e) {
+        return null;
+      }
+    }
+
+    return GameSessionModel(
+      gameId: json['gameId'] ?? '',
+      createdBy: json['createdBy'] ?? '',
+      gameName: json['gameName'] ?? '',
+      playerIds: List<String>.from(json['playerIds'] ?? []),
+      players: parsePlayersList(json['players']),
+      status: GameStatus.values.firstWhere(
+        (s) => s.toString() == json['status'],
+        orElse: () => GameStatus.waitingForPlayers,
+      ),
+      createdAt: parseDateTime(json['createdAt']),
+      startedAt: parseNullableDateTime(json['startedAt']),
+      endedAt: parseNullableDateTime(json['endedAt']),
+      winnerId: json['winnerId'],
+      useAIWords: json['useAIWords'] ?? false,
+      aiPrompt: json['aiPrompt'],
+      difficulty: json['difficulty'],
+      wordGrid: parseWordGrid(json['wordGrid'], json),
+      maxPlayers: json['maxPlayers'] ?? 2, // Default to 2 for backward compatibility
+    );
+  }
+
   // Create from Map (database retrieval)
   factory GameSessionModel.fromMap(Map<String, dynamic> map) {
     DateTime parseDateTime(dynamic value) {
@@ -247,6 +364,7 @@ class PlayerInGame {
   final DateTime joinedAt;
   final int wordsRead;
   final bool isReady;
+  final int? playerColor;
 
   PlayerInGame({
     required this.userId,
@@ -255,6 +373,7 @@ class PlayerInGame {
     required this.joinedAt,
     this.wordsRead = 0,
     this.isReady = false,
+    this.playerColor,
   });
 
   Map<String, dynamic> toMap() {
@@ -265,7 +384,47 @@ class PlayerInGame {
       'joinedAt': Timestamp.fromDate(joinedAt),
       'wordsRead': wordsRead,
       'isReady': isReady,
+      'playerColor': playerColor,
     };
+  }
+
+  // Convert to JSON (for session storage - uses ISO strings instead of Timestamps)
+  Map<String, dynamic> toJson() {
+    return {
+      'userId': userId,
+      'displayName': displayName,
+      'emailAddress': emailAddress,
+      'joinedAt': joinedAt.toIso8601String(),
+      'wordsRead': wordsRead,
+      'isReady': isReady,
+      'playerColor': playerColor,
+    };
+  }
+
+  // Create from JSON (for session storage - handles ISO strings)
+  factory PlayerInGame.fromJson(Map<String, dynamic> json) {
+    DateTime parseDateTime(dynamic value) {
+      if (value == null) return DateTime.now();
+      if (value is String) {
+        try {
+          return DateTime.parse(value);
+        } catch (e) {
+          return DateTime.now();
+        }
+      }
+      if (value is Timestamp) return value.toDate();
+      return DateTime.now();
+    }
+
+    return PlayerInGame(
+      userId: json['userId'] ?? '',
+      displayName: json['displayName'] ?? '',
+      emailAddress: json['emailAddress'] ?? '',
+      joinedAt: parseDateTime(json['joinedAt']),
+      wordsRead: (json['wordsRead'] ?? 0).toInt(),
+      isReady: json['isReady'] ?? false,
+      playerColor: json['playerColor'],
+    );
   }
 
   factory PlayerInGame.fromMap(Map<String, dynamic> map) {
@@ -283,6 +442,7 @@ class PlayerInGame {
       joinedAt: parseDateTime(map['joinedAt']),
       wordsRead: (map['wordsRead'] ?? 0).toInt(),
       isReady: map['isReady'] ?? false,
+      playerColor: map['playerColor'],
     );
   }
 
@@ -293,6 +453,7 @@ class PlayerInGame {
     DateTime? joinedAt,
     int? wordsRead,
     bool? isReady,
+    int? playerColor,
   }) {
     return PlayerInGame(
       userId: userId ?? this.userId,
@@ -301,6 +462,7 @@ class PlayerInGame {
       joinedAt: joinedAt ?? this.joinedAt,
       wordsRead: wordsRead ?? this.wordsRead,
       isReady: isReady ?? this.isReady,
+      playerColor: playerColor ?? this.playerColor,
     );
   }
 }

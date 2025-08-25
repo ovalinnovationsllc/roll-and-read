@@ -106,11 +106,23 @@ class GameSessionService {
           throw Exception('Game is not accepting new players');
         }
 
+        // Check for duplicate colors
+        if (user.playerColor != null) {
+          final existingColors = gameSession.players
+              .where((p) => p.playerColor != null)
+              .map((p) => p.playerColor)
+              .toList();
+          if (existingColors.contains(user.playerColor!.value)) {
+            throw Exception('This color is already taken. Please choose a different color.');
+          }
+        }
+
         final player = PlayerInGame(
           userId: user.id,
           displayName: user.displayName,
           emailAddress: user.emailAddress,
           joinedAt: DateTime.now(),
+          playerColor: user.playerColor?.value,
         );
 
         final updatedGame = gameSession.addPlayer(player);
@@ -211,6 +223,19 @@ class GameSessionService {
     }
   }
 
+  // Listen to games created by admin (for real-time updates)
+  static Stream<List<GameSessionModel>> listenToGamesByAdmin(String adminUserId) {
+    return _gamesCollection
+        .where('createdBy', isEqualTo: adminUserId)
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .map((snapshot) {
+      return snapshot.docs
+          .map((doc) => GameSessionModel.fromMap(doc.data() as Map<String, dynamic>))
+          .toList();
+    });
+  }
+
   // Get active games for a player
   static Future<List<GameSessionModel>> getActiveGamesForPlayer(String userId) async {
     try {
@@ -276,6 +301,57 @@ class GameSessionService {
       });
     } catch (e) {
       print('Error updating player progress: $e');
+      rethrow;
+    }
+  }
+
+  // Leave a game session
+  static Future<GameSessionModel?> leaveGameSession({
+    required String gameId,
+    required String playerId,
+  }) async {
+    try {
+      final gameRef = _gamesCollection.doc(gameId.toUpperCase());
+      
+      return await _firestore.runTransaction((transaction) async {
+        final gameDoc = await transaction.get(gameRef);
+        
+        if (!gameDoc.exists) {
+          throw Exception('Game not found');
+        }
+
+        final gameSession = GameSessionModel.fromMap(gameDoc.data() as Map<String, dynamic>);
+        
+        // Remove player from the game
+        final updatedPlayers = gameSession.players.where((p) => p.userId != playerId).toList();
+        final updatedPlayerIds = gameSession.playerIds.where((id) => id != playerId).toList();
+        
+        // If no players left, delete the game entirely
+        if (updatedPlayers.isEmpty) {
+          transaction.delete(gameRef);
+          // Clean up game state - don't await in transaction
+          GameStateService.deleteGameState(gameSession.gameId);
+          return null; // Game deleted
+        }
+        
+        // Update the game with remaining players
+        final updatedGame = gameSession.copyWith(
+          players: updatedPlayers,
+          playerIds: updatedPlayerIds,
+        );
+        
+        transaction.update(gameRef, updatedGame.toMap());
+        
+        // Remove player from game state (don't await in transaction)
+        GameStateService.removePlayerFromGame(
+          gameId: gameSession.gameId,
+          playerId: playerId,
+        );
+        
+        return updatedGame;
+      });
+    } catch (e) {
+      print('Error leaving game: $e');
       rethrow;
     }
   }

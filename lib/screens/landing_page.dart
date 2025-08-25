@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../config/app_colors.dart';
 import 'admin_login_page.dart';
 import 'user_login_page.dart';
 import 'game_join_page.dart';
@@ -21,9 +22,9 @@ class LandingPage extends StatelessWidget {
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
             colors: [
-              Colors.green.shade50,
-              Colors.white,
-              Colors.green.shade50,
+              AppColors.lightGray.withOpacity(0.3),
+              AppColors.background,
+              AppColors.lightGray.withOpacity(0.3),
             ],
           ),
         ),
@@ -43,11 +44,11 @@ class LandingPage extends StatelessWidget {
                         Container(
                           padding: const EdgeInsets.all(25),
                           decoration: BoxDecoration(
-                            color: Colors.white,
+                            color: Colors.transparent,
                             shape: BoxShape.circle,
                             boxShadow: [
                               BoxShadow(
-                                color: Colors.green.shade300.withOpacity(0.4),
+                                color: AppColors.mediumBlue.withOpacity(0.4),
                                 blurRadius: 30,
                                 spreadRadius: 10,
                                 offset: const Offset(0, 10),
@@ -59,6 +60,21 @@ class LandingPage extends StatelessWidget {
                             width: isTablet ? 160 : 120,
                             height: isTablet ? 160 : 120,
                             fit: BoxFit.contain,
+                            errorBuilder: (context, error, stackTrace) {
+                              return Container(
+                                width: isTablet ? 160 : 120,
+                                height: isTablet ? 160 : 120,
+                                decoration: BoxDecoration(
+                                  color: AppColors.gamePrimary,
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                child: Icon(
+                                  Icons.school,
+                                  size: isTablet ? 80 : 60,
+                                  color: Colors.white,
+                                ),
+                              );
+                            },
                           ),
                         ),
                         
@@ -70,7 +86,7 @@ class LandingPage extends StatelessWidget {
                           style: TextStyle(
                             fontSize: isTablet ? 48 : 36,
                             fontWeight: FontWeight.bold,
-                            color: Colors.green.shade700,
+                            color: AppColors.primary,
                             letterSpacing: 3,
                             height: 1.2,
                           ),
@@ -84,8 +100,8 @@ class LandingPage extends StatelessWidget {
                             Navigator.pushNamed(context, '/game-join');
                           },
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.green.shade600,
-                            foregroundColor: Colors.white,
+                            backgroundColor: AppColors.primary,
+                            foregroundColor: AppColors.onPrimary,
                             padding: EdgeInsets.symmetric(
                               horizontal: isTablet ? 60 : 50,
                               vertical: isTablet ? 25 : 20,
@@ -94,7 +110,7 @@ class LandingPage extends StatelessWidget {
                               borderRadius: BorderRadius.circular(35),
                             ),
                             elevation: 8,
-                            shadowColor: Colors.green.shade300,
+                            shadowColor: AppColors.mediumBlue,
                           ),
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
@@ -128,10 +144,10 @@ class LandingPage extends StatelessWidget {
                 right: 0,
                 child: Column(
                   children: [
-                    // Admin access button
+                    // Teacher access button
                     TextButton(
                       onPressed: () {
-                        Navigator.pushNamed(context, '/admin-login');
+                        Navigator.pushNamed(context, '/teacher-login');
                       },
                       style: TextButton.styleFrom(
                         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
@@ -142,14 +158,14 @@ class LandingPage extends StatelessWidget {
                           Icon(
                             Icons.admin_panel_settings,
                             size: isTablet ? 20 : 18,
-                            color: Colors.grey.shade600,
+                            color: AppColors.textSecondary,
                           ),
                           const SizedBox(width: 6),
                           Text(
-                            'Admin Access',
+                            'Teacher Access',
                             style: TextStyle(
                               fontSize: isTablet ? 15 : 13,
-                              color: Colors.grey.shade600,
+                              color: AppColors.textSecondary,
                               fontWeight: FontWeight.w500,
                             ),
                           ),
@@ -161,7 +177,7 @@ class LandingPage extends StatelessWidget {
                       'Built by Oval Innovations, LLC',
                       style: TextStyle(
                         fontSize: isTablet ? 12 : 11,
-                        color: Colors.grey.shade500,
+                        color: AppColors.textDisabled,
                         fontStyle: FontStyle.italic,
                       ),
                     ),

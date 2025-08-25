@@ -1,9 +1,22 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import '../models/user_model.dart';
+import '../utils/safe_print.dart';
 
 class FirestoreService {
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   static const String _usersCollection = 'users';
+  
+  // Flag to track if Firebase is properly initialized
+  static bool _isFirebaseReady = false;
+  
+  /// Set Firebase ready status (called after successful initialization)
+  static void setFirebaseReady(bool ready) {
+    _isFirebaseReady = ready;
+  }
+  
+  /// Check if Firebase operations are safe to perform
+  static bool get isFirebaseReady => _isFirebaseReady;
 
   /// Check if a user exists and is an admin by email
   static Future<bool> checkAdminByEmail(String email) async {
@@ -17,29 +30,43 @@ class FirestoreService {
 
       return querySnapshot.docs.isNotEmpty;
     } catch (e) {
-      print('Error checking admin status: $e');
+      safePrint('Error checking admin status: ${e.runtimeType} - ${e.toString()}');
       return false;
     }
   }
 
   /// Get user by email
   static Future<UserModel?> getUserByEmail(String email) async {
+    if (!_isFirebaseReady) {
+      safePrint('Firebase not ready, returning null for getUserByEmail');
+      return null;
+    }
+    
     try {
+      final cleanEmail = email.toLowerCase().trim();
+      safePrint('🔍 FirestoreService: Looking up user with email: "$cleanEmail"');
+      
       final QuerySnapshot querySnapshot = await _firestore
           .collection(_usersCollection)
-          .where('emailAddress', isEqualTo: email.toLowerCase().trim())
+          .where('emailAddress', isEqualTo: cleanEmail)
           .limit(1)
           .get();
 
+      safePrint('🔍 FirestoreService: Found ${querySnapshot.docs.length} documents');
+      
       if (querySnapshot.docs.isNotEmpty) {
         final doc = querySnapshot.docs.first;
         final data = doc.data() as Map<String, dynamic>;
         data['id'] = doc.id;
+        safePrint('🔍 FirestoreService: User found - ${data['displayName']} (${data['emailAddress']})');
         return UserModel.fromMap(data);
       }
+      
+      safePrint('🔍 FirestoreService: No user found with email: "$cleanEmail"');
       return null;
     } catch (e) {
-      print('Error getting user: $e');
+      // Handle Firebase web interop issues by catching all exceptions
+      safePrint('Error getting user by email: ${e.runtimeType} - ${e.toString()}');
       return null;
     }
   }
@@ -97,6 +124,20 @@ class FirestoreService {
         return UserModel.fromMap(data);
       }).toList();
     });
+  }
+
+  /// Delete user (admin only)
+  static Future<bool> deleteUser(String userId) async {
+    try {
+      await _firestore
+          .collection(_usersCollection)
+          .doc(userId)
+          .delete();
+      return true;
+    } catch (e) {
+      print('Error deleting user: $e');
+      return false;
+    }
   }
 
   /// Get user statistics (admin only)

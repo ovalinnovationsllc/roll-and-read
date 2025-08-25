@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 import 'dart:math';
+import 'package:flutter_tts/flutter_tts.dart';
+import '../config/app_colors.dart';
 import '../widgets/animated_dice.dart';
 import '../models/user_model.dart';
 import '../models/game_session_model.dart';
 import '../models/game_state_model.dart';
 import '../services/game_state_service.dart';
 import '../services/game_session_service.dart';
+import '../services/sound_service.dart';
 
 class MultiplayerRollAndRead extends StatefulWidget {
   final UserModel user;
@@ -27,6 +30,7 @@ class _MultiplayerRollAndReadState extends State<MultiplayerRollAndRead> {
   GameStateModel? _currentGameState;
   bool _isLocalRolling = false;
   bool _canRoll = true;
+  late FlutterTts _flutterTts;
   
   // Grid content - 6 columns (for dice 1-6) x 6 rows
   late List<List<String>> gridContent;
@@ -37,6 +41,65 @@ class _MultiplayerRollAndReadState extends State<MultiplayerRollAndRead> {
     _initializeGrid();
     _gameStateStream = GameStateService.getGameStateStream(widget.gameSession.gameId);
     _initializeGameState();
+    _initializeTts();
+  }
+  
+  Color _getPlayerColor(String playerId) {
+    final player = widget.gameSession.players.firstWhere(
+      (p) => p.userId == playerId,
+      orElse: () => throw Exception('Player not found'),
+    );
+    
+    if (player.playerColor != null) {
+      return Color(player.playerColor!);
+    }
+    
+    // Fallback colors if no color is set
+    final playerIndex = widget.gameSession.playerIds.indexOf(playerId);
+    switch (playerIndex) {
+      case 0:
+        return AppColors.gamePrimary;
+      case 1:
+        return AppColors.darkBlue;
+      default:
+        return AppColors.gamePrimary;
+    }
+  }
+
+  void _initializeTts() {
+    _flutterTts = FlutterTts();
+    _flutterTts.setLanguage("en-US");
+    _flutterTts.setSpeechRate(0.5); // Slower speech for young learners
+    _flutterTts.setVolume(1.0);
+    _flutterTts.setPitch(1.0);
+  }
+
+  @override
+  void dispose() {
+    _flutterTts.stop();
+    super.dispose();
+  }
+
+  String _getPlayerName(String? playerId, GameStateModel gameState) {
+    if (playerId == null) return 'Unknown Player';
+    final player = widget.gameSession.players.firstWhere(
+      (p) => p.userId == playerId,
+      orElse: () => PlayerInGame(
+        userId: playerId,
+        displayName: 'Player',
+        emailAddress: '',
+        joinedAt: DateTime.now(),
+      ),
+    );
+    return player.displayName;
+  }
+
+  Future<void> _speakWord(String word) async {
+    try {
+      await _flutterTts.speak(word);
+    } catch (e) {
+      print('Error speaking word: $e');
+    }
   }
 
   void _initializeGrid() {
@@ -69,6 +132,21 @@ class _MultiplayerRollAndReadState extends State<MultiplayerRollAndRead> {
 
   Future<void> _rollDice() async {
     if (!_canRoll || _isLocalRolling) return;
+    
+    // Check if it's this player's turn (in turn-based mode)
+    final currentGameState = _currentGameState;
+    if (currentGameState != null && !currentGameState.simultaneousPlay) {
+      if (currentGameState.currentTurnPlayerId != widget.user.id) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('It\'s not your turn to roll!'),
+            backgroundColor: AppColors.warning,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+        return;
+      }
+    }
 
     setState(() {
       _canRoll = false;
@@ -104,16 +182,68 @@ class _MultiplayerRollAndReadState extends State<MultiplayerRollAndRead> {
     // Only allow marking cells in the column that matches the current dice value
     if (col + 1 != gameState.currentDiceValue || gameState.isRolling) return;
     
-    final cellKey = '$row-$col';
-    final myCompletedCells = gameState.getPlayerCompletedCells(widget.user.id);
-    final isCompleted = myCompletedCells.contains(cellKey);
+    // In turn-based mode, only allow the current turn player to select cells
+    if (!gameState.simultaneousPlay && gameState.currentTurnPlayerId != widget.user.id) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('It\'s not your turn! Wait for ${_getPlayerName(gameState.currentTurnPlayerId, gameState)} to finish.'),
+          backgroundColor: AppColors.warning,
+          duration: const Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
     
-    await GameStateService.toggleCell(
-      gameId: widget.gameSession.gameId,
-      playerId: widget.user.id,
-      cellKey: cellKey,
-      isCompleted: !isCompleted,
-    );
+    final cellKey = '$row-$col';
+    final word = gridContent[row][col];
+    
+    // Check if there's already a pending pronunciation for this cell
+    if (gameState.hasPendingPronunciation(cellKey)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Someone is already pronouncing this word. Please wait.'),
+          backgroundColor: AppColors.warning,
+          duration: const Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+
+    try {
+      // Play word selection sound
+      await SoundService.playWordSelect();
+      
+      // Start pronunciation attempt
+      final newState = gameState.startPronunciationAttempt(
+        playerId: widget.user.id,
+        playerName: widget.user.displayName,
+        cellKey: cellKey,
+        word: word,
+      );
+      
+      await GameStateService.updateGameState(newState);
+      
+      // Show pronunciation request to the player
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Say "$word" aloud! Your teacher will approve when ready.'),
+            backgroundColor: Colors.blue,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+      
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: ${e.toString()}'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    }
   }
 
   Color _getCellColor(int row, int col, GameStateModel gameState) {
@@ -121,35 +251,36 @@ class _MultiplayerRollAndReadState extends State<MultiplayerRollAndRead> {
     final player1Id = widget.gameSession.playerIds.isNotEmpty ? widget.gameSession.playerIds[0] : '';
     final player2Id = widget.gameSession.playerIds.length > 1 ? widget.gameSession.playerIds[1] : '';
     
-    final player1Cells = gameState.getPlayerCompletedCells(player1Id);
-    final player2Cells = gameState.getPlayerCompletedCells(player2Id);
+    // Check if cell is contested - use white background so diagonal split shows properly
+    if (gameState.isCellContested(cellKey)) {
+      return AppColors.white;
+    }
     
-    final isPlayer1Cell = player1Cells.contains(cellKey);
-    final isPlayer2Cell = player2Cells.contains(cellKey);
+    // Check if cell has pending pronunciation on an already owned cell - treat as contested
+    if (gameState.hasPendingPronunciation(cellKey)) {
+      final cellOwner = gameState.getCellOwner(cellKey);
+      if (cellOwner != null) {
+        // Cell is owned and someone is trying to steal it - show as contested
+        return AppColors.white;
+      } else {
+        // Cell is unowned and someone is trying to claim it - show purple/waiting color
+        return AppColors.gamePrimary.withOpacity(0.3);
+      }
+    }
     
-    // Both players selected the same cell
-    if (isPlayer1Cell && isPlayer2Cell) {
-      return Colors.purple.shade100;
+    // Check cell owner
+    final cellOwner = gameState.getCellOwner(cellKey);
+    if (cellOwner == player1Id) {
+      return _getPlayerColor(player1Id).withOpacity(0.3);
+    } else if (cellOwner == player2Id) {
+      return _getPlayerColor(player2Id).withOpacity(0.3);
     }
-    // Current player's cell
-    else if (widget.user.id == player1Id && isPlayer1Cell) {
-      return Colors.green.shade100;
-    }
-    // Other player's cell
-    else if (widget.user.id == player2Id && isPlayer2Cell) {
-      return Colors.blue.shade100;
-    }
-    // Other player's cell (from current player's perspective)
-    else if (widget.user.id == player1Id && isPlayer2Cell) {
-      return Colors.blue.shade100;
-    }
-    else if (widget.user.id == player2Id && isPlayer1Cell) {
-      return Colors.green.shade100;
-    }
+    
     // Highlighted column for current dice value
-    else if (gameState.currentDiceValue == col + 1 && !gameState.isRolling) {
-      return Colors.yellow.shade50;
+    if (gameState.currentDiceValue == col + 1 && !gameState.isRolling) {
+      return AppColors.mediumBlue.withOpacity(0.1);
     }
+    
     // Default
     return Colors.white;
   }
@@ -161,10 +292,10 @@ class _MultiplayerRollAndReadState extends State<MultiplayerRollAndRead> {
     return Container(
       padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
-        color: isCurrentPlayer ? Colors.green.shade200 : Colors.grey.shade200,
+        color: isCurrentPlayer ? AppColors.gamePrimary.withOpacity(0.2) : AppColors.lightGray.withOpacity(0.5),
         borderRadius: BorderRadius.circular(8),
         border: Border.all(
-          color: isCurrentPlayer ? Colors.green.shade400 : Colors.grey.shade400,
+          color: isCurrentPlayer ? AppColors.gamePrimary : AppColors.lightGray,
           width: justRolled ? 3 : 1,
         ),
       ),
@@ -176,7 +307,7 @@ class _MultiplayerRollAndReadState extends State<MultiplayerRollAndRead> {
               Icon(
                 Icons.person,
                 size: 16,
-                color: isCurrentPlayer ? Colors.green.shade700 : Colors.grey.shade700,
+                color: isCurrentPlayer ? AppColors.gamePrimary : AppColors.textSecondary,
               ),
               const SizedBox(width: 4),
               Text(
@@ -184,7 +315,7 @@ class _MultiplayerRollAndReadState extends State<MultiplayerRollAndRead> {
                 style: TextStyle(
                   fontWeight: FontWeight.bold,
                   fontSize: 12,
-                  color: isCurrentPlayer ? Colors.green.shade700 : Colors.grey.shade700,
+                  color: isCurrentPlayer ? AppColors.gamePrimary : AppColors.textSecondary,
                 ),
                 overflow: TextOverflow.ellipsis,
               ),
@@ -195,7 +326,7 @@ class _MultiplayerRollAndReadState extends State<MultiplayerRollAndRead> {
                   style: TextStyle(
                     fontSize: 10,
                     fontStyle: FontStyle.italic,
-                    color: Colors.green.shade600,
+                    color: AppColors.gamePrimary,
                   ),
                 ),
               ],
@@ -214,7 +345,7 @@ class _MultiplayerRollAndReadState extends State<MultiplayerRollAndRead> {
               child: CircularProgressIndicator(
                 strokeWidth: 2,
                 valueColor: AlwaysStoppedAnimation<Color>(
-                  isCurrentPlayer ? Colors.green.shade600 : Colors.grey.shade600,
+                  isCurrentPlayer ? AppColors.gamePrimary : AppColors.textSecondary,
                 ),
               ),
             ),
@@ -224,7 +355,7 @@ class _MultiplayerRollAndReadState extends State<MultiplayerRollAndRead> {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               decoration: BoxDecoration(
-                color: Colors.amber.shade200,
+                color: AppColors.mediumBlue.withOpacity(0.2),
                 borderRadius: BorderRadius.circular(4),
               ),
               child: Text(
@@ -269,7 +400,7 @@ class _MultiplayerRollAndReadState extends State<MultiplayerRollAndRead> {
             // Player status bar
             Container(
               padding: const EdgeInsets.all(12),
-              color: Colors.grey.shade100,
+              color: AppColors.gameBackground,
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
@@ -299,10 +430,45 @@ class _MultiplayerRollAndReadState extends State<MultiplayerRollAndRead> {
               ),
             ),
             
+            // Turn indicator (only show in turn-based mode)
+            if (!_currentGameState!.simultaneousPlay)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                color: AppColors.gamePrimary.withOpacity(0.1),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      _currentGameState!.currentTurnPlayerId == widget.user.id
+                          ? Icons.play_circle_fill
+                          : Icons.schedule,
+                      color: _currentGameState!.currentTurnPlayerId == widget.user.id
+                          ? AppColors.success
+                          : AppColors.warning,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      _currentGameState!.currentTurnPlayerId == widget.user.id
+                          ? 'Your Turn - Roll the dice!'
+                          : '${_getPlayerName(_currentGameState!.currentTurnPlayerId, _currentGameState!)}\'s Turn',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: _currentGameState!.currentTurnPlayerId == widget.user.id
+                            ? AppColors.success
+                            : AppColors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            
             // Dice rolling section
             Container(
               padding: const EdgeInsets.symmetric(vertical: 20),
-              color: Colors.green.shade50,
+              color: AppColors.gameBackground,
               child: Column(
                 children: [
                   Center(
@@ -320,7 +486,7 @@ class _MultiplayerRollAndReadState extends State<MultiplayerRollAndRead> {
                       style: TextStyle(
                         fontSize: 14,
                         fontStyle: FontStyle.italic,
-                        color: Colors.grey.shade700,
+                        color: AppColors.textSecondary,
                       ),
                     ),
                   ],
@@ -332,7 +498,7 @@ class _MultiplayerRollAndReadState extends State<MultiplayerRollAndRead> {
             if (!_currentGameState!.isRolling && _currentGameState!.lastDiceRoll != null)
               Container(
                 padding: const EdgeInsets.all(10),
-                color: Colors.amber.shade100,
+                color: AppColors.warning.withOpacity(0.1),
                 child: Text(
                   _currentGameState!.currentPlayerId == widget.user.id
                       ? 'You rolled a ${_currentGameState!.currentDiceValue}! Pick a word in column ${_currentGameState!.currentDiceValue}'
@@ -340,7 +506,7 @@ class _MultiplayerRollAndReadState extends State<MultiplayerRollAndRead> {
                   style: TextStyle(
                     fontSize: isTablet ? 18 : 16,
                     fontWeight: FontWeight.bold,
-                    color: Colors.amber.shade900,
+                    color: AppColors.darkBlue,
                   ),
                 ),
               ),
@@ -355,8 +521,8 @@ class _MultiplayerRollAndReadState extends State<MultiplayerRollAndRead> {
                     Container(
                       height: isTablet ? 70 : 60,
                       decoration: BoxDecoration(
-                        color: Colors.blue.shade100,
-                        border: Border.all(color: Colors.blue.shade300, width: 2),
+                        color: AppColors.gamePrimary.withOpacity(0.1),
+                        border: Border.all(color: AppColors.gamePrimary.withOpacity(0.3), width: 2),
                         borderRadius: const BorderRadius.only(
                           topLeft: Radius.circular(10),
                           topRight: Radius.circular(10),
@@ -370,11 +536,11 @@ class _MultiplayerRollAndReadState extends State<MultiplayerRollAndRead> {
                                 decoration: BoxDecoration(
                                   border: Border(
                                     right: i < 6 
-                                      ? BorderSide(color: Colors.blue.shade300, width: 1)
+                                      ? BorderSide(color: AppColors.gamePrimary.withOpacity(0.3), width: 1)
                                       : BorderSide.none,
                                   ),
                                   color: _currentGameState!.currentDiceValue == i && !_currentGameState!.isRolling
-                                    ? Colors.yellow.shade300
+                                    ? AppColors.mediumBlue.withOpacity(0.3)
                                     : Colors.transparent,
                                 ),
                                 child: Center(
@@ -390,7 +556,7 @@ class _MultiplayerRollAndReadState extends State<MultiplayerRollAndRead> {
                     Expanded(
                       child: Container(
                         decoration: BoxDecoration(
-                          border: Border.all(color: Colors.blue.shade300, width: 2),
+                          border: Border.all(color: AppColors.gamePrimary.withOpacity(0.3), width: 2),
                           borderRadius: const BorderRadius.only(
                             bottomLeft: Radius.circular(10),
                             bottomRight: Radius.circular(10),
@@ -406,31 +572,40 @@ class _MultiplayerRollAndReadState extends State<MultiplayerRollAndRead> {
                                       Expanded(
                                         child: GestureDetector(
                                           onTap: () => _toggleCell(row, col, _currentGameState!),
+                                          onLongPress: () => _speakWord(gridContent[row][col]),
                                           child: Container(
                                             decoration: BoxDecoration(
                                               border: Border(
                                                 right: col < 5 
-                                                  ? BorderSide(color: Colors.grey.shade300, width: 1)
+                                                  ? BorderSide(color: AppColors.lightGray, width: 1)
                                                   : BorderSide.none,
                                                 bottom: row < 5
-                                                  ? BorderSide(color: Colors.grey.shade300, width: 1)
+                                                  ? BorderSide(color: AppColors.lightGray, width: 1)
                                                   : BorderSide.none,
                                               ),
                                               color: _getCellColor(row, col, _currentGameState!),
                                             ),
                                             child: Stack(
                                               children: [
+                                                // Diagonal split for contested cells or pending steal attempts
+                                                if (_currentGameState!.isCellContested('$row-$col') || 
+                                                    (_currentGameState!.hasPendingPronunciation('$row-$col') && 
+                                                     _currentGameState!.getCellOwner('$row-$col') != null))
+                                                  _buildDiagonalSplit('$row-$col'),
                                                 Center(
                                                   child: Text(
                                                     gridContent[row][col],
                                                     style: TextStyle(
                                                       fontSize: isTablet ? 18 : 14,
                                                       fontWeight: FontWeight.w600,
-                                                      color: Colors.black87,
+                                                      color: AppColors.textPrimary,
                                                     ),
                                                     textAlign: TextAlign.center,
                                                   ),
                                                 ),
+                                                // Pending pronunciation indicator
+                                                if (_currentGameState!.hasPendingPronunciation('$row-$col'))
+                                                  _buildPronunciationPendingIndicator(),
                                                 // Player indicators
                                                 _buildCellPlayerIndicators(row, col, _currentGameState!),
                                               ],
@@ -455,6 +630,65 @@ class _MultiplayerRollAndReadState extends State<MultiplayerRollAndRead> {
     );
   }
   
+
+  Widget _buildPronunciationPendingIndicator() {
+    return Positioned(
+      top: 2,
+      right: 2,
+      child: Container(
+        padding: const EdgeInsets.all(4),
+        decoration: BoxDecoration(
+          color: Colors.orange,
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: const Icon(
+          Icons.pending_actions,
+          color: Colors.white,
+          size: 12,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDiagonalSplit(String cellKey) {
+    final player1Id = widget.gameSession.playerIds.isNotEmpty ? widget.gameSession.playerIds[0] : '';
+    final player2Id = widget.gameSession.playerIds.length > 1 ? widget.gameSession.playerIds[1] : '';
+    
+    // Determine which players are involved in the contest
+    Color firstPlayerColor;
+    Color secondPlayerColor;
+    
+    if (_currentGameState!.isCellContested(cellKey)) {
+      // Cell is officially contested - show both player colors
+      firstPlayerColor = _getPlayerColor(player1Id);
+      secondPlayerColor = _getPlayerColor(player2Id);
+    } else {
+      // Cell has pending pronunciation on owned cell - show owner vs challenger
+      final cellOwner = _currentGameState!.getCellOwner(cellKey);
+      final pendingAttempt = _currentGameState!.getPendingPronunciation(cellKey);
+      
+      if (cellOwner != null && pendingAttempt != null) {
+        firstPlayerColor = _getPlayerColor(cellOwner); // Current owner
+        secondPlayerColor = _getPlayerColor(pendingAttempt.playerId); // Challenger
+      } else {
+        // Fallback
+        firstPlayerColor = _getPlayerColor(player1Id);
+        secondPlayerColor = _getPlayerColor(player2Id);
+      }
+    }
+    
+    return CustomPaint(
+      painter: DiagonalSplitPainter(
+        player1Color: firstPlayerColor,
+        player2Color: secondPlayerColor,
+      ),
+      child: Container(
+        width: double.infinity,
+        height: double.infinity,
+      ),
+    );
+  }
+
   Widget _buildCellPlayerIndicators(int row, int col, GameStateModel gameState) {
     final cellKey = '$row-$col';
     final player1Id = widget.gameSession.playerIds.isNotEmpty ? widget.gameSession.playerIds[0] : '';
@@ -468,6 +702,26 @@ class _MultiplayerRollAndReadState extends State<MultiplayerRollAndRead> {
     
     if (!hasPlayer1 && !hasPlayer2) return const SizedBox.shrink();
     
+    // Get player data from game session
+    final player1 = widget.gameSession.players.firstWhere(
+      (p) => p.userId == player1Id,
+      orElse: () => PlayerInGame(
+        userId: player1Id,
+        displayName: 'Player 1',
+        emailAddress: '',
+        joinedAt: DateTime.now(),
+      ),
+    );
+    final player2 = widget.gameSession.players.firstWhere(
+      (p) => p.userId == player2Id,
+      orElse: () => PlayerInGame(
+        userId: player2Id,
+        displayName: 'Player 2',
+        emailAddress: '',
+        joinedAt: DateTime.now(),
+      ),
+    );
+    
     return Positioned(
       top: 2,
       right: 2,
@@ -479,14 +733,14 @@ class _MultiplayerRollAndReadState extends State<MultiplayerRollAndRead> {
               width: 16,
               height: 16,
               decoration: BoxDecoration(
-                color: widget.user.id == player1Id ? Colors.green : Colors.blue,
+                color: _getPlayerColor(player1Id),
                 shape: BoxShape.circle,
               ),
               child: const Center(
                 child: Text(
                   '1',
                   style: TextStyle(
-                    color: Colors.white,
+                    color: AppColors.white,
                     fontSize: 10,
                     fontWeight: FontWeight.bold,
                   ),
@@ -500,14 +754,14 @@ class _MultiplayerRollAndReadState extends State<MultiplayerRollAndRead> {
               width: 16,
               height: 16,
               decoration: BoxDecoration(
-                color: widget.user.id == player2Id ? Colors.green : Colors.blue,
+                color: _getPlayerColor(player2Id),
                 shape: BoxShape.circle,
               ),
               child: const Center(
                 child: Text(
                   '2',
                   style: TextStyle(
-                    color: Colors.white,
+                    color: AppColors.white,
                     fontSize: 10,
                     fontWeight: FontWeight.bold,
                   ),
@@ -539,8 +793,8 @@ class _MultiplayerRollAndReadState extends State<MultiplayerRollAndRead> {
       height: size,
       padding: EdgeInsets.all(size * 0.15),
       decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border.all(color: Colors.black87, width: 2),
+        color: AppColors.white,
+        border: Border.all(color: AppColors.textPrimary, width: 2),
         borderRadius: BorderRadius.circular(size * 0.15),
       ),
       child: _getDicePattern(value, dot, empty),
@@ -636,5 +890,48 @@ class _MultiplayerRollAndReadState extends State<MultiplayerRollAndRead> {
       default:
         return Center(child: dot());
     }
+  }
+}
+
+class DiagonalSplitPainter extends CustomPainter {
+  final Color player1Color;
+  final Color player2Color;
+  
+  DiagonalSplitPainter({
+    required this.player1Color,
+    required this.player2Color,
+  });
+  
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint1 = Paint()
+      ..color = player1Color.withOpacity(0.4)
+      ..style = PaintingStyle.fill;
+    
+    final paint2 = Paint()
+      ..color = player2Color.withOpacity(0.4)
+      ..style = PaintingStyle.fill;
+    
+    // Draw top-left triangle (Player 1 - Blue)
+    final path1 = Path();
+    path1.moveTo(0, 0);
+    path1.lineTo(size.width, 0);
+    path1.lineTo(0, size.height);
+    path1.close();
+    canvas.drawPath(path1, paint1);
+    
+    // Draw bottom-right triangle (Player 2 - Red)
+    final path2 = Path();
+    path2.moveTo(size.width, 0);
+    path2.lineTo(size.width, size.height);
+    path2.lineTo(0, size.height);
+    path2.close();
+    canvas.drawPath(path2, paint2);
+  }
+  
+  @override
+  bool shouldRepaint(DiagonalSplitPainter oldDelegate) {
+    return oldDelegate.player1Color != player1Color || 
+           oldDelegate.player2Color != player2Color;
   }
 }
