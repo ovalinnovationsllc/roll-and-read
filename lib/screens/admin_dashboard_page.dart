@@ -3260,7 +3260,7 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Games: ${student.gamesPlayed} • Words: ${student.wordsRead}',
+              'Games: ${student.gamesPlayed} • Won: ${student.gamesWon} • Words: ${student.wordsRead}',
               style: TextStyle(
                 fontSize: isTablet ? 12 : 10,
                 color: Colors.grey.shade600,
@@ -3316,6 +3316,8 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _buildStatRow('Games Played', '${student.gamesPlayed}', Icons.sports_esports, isTablet),
+              const SizedBox(height: 12),
+              _buildStatRow('Games Won', '${student.gamesWon}', Icons.emoji_events, isTablet),
               const SizedBox(height: 12),
               _buildStatRow('Words Read', '${student.wordsRead}', Icons.record_voice_over, isTablet),
               const SizedBox(height: 12),
