@@ -1,12 +1,9 @@
 import 'dart:convert';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/user_model.dart';
 import '../models/game_session_model.dart';
 import '../utils/safe_print.dart';
 import 'firestore_service.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-
-// Conditional import for web-specific localStorage
-import 'session_service_web.dart' if (dart.library.io) 'session_service_mobile.dart' as platform;
 
 class SessionService {
   static const String _userKey = 'roll_and_read_user';
@@ -16,8 +13,9 @@ class SessionService {
   // Save user session
   static Future<void> saveUser(UserModel user) async {
     try {
+      final prefs = await SharedPreferences.getInstance();
       final userJson = json.encode(user.toJson());
-      await platform.setString(_userKey, userJson);
+      await prefs.setString(_userKey, userJson);
     } catch (e) {
       safeError('Error saving user session: $e');
     }
@@ -26,7 +24,8 @@ class SessionService {
   // Get saved user
   static Future<UserModel?> getUser() async {
     try {
-      final userJson = await platform.getString(_userKey);
+      final prefs = await SharedPreferences.getInstance();
+      final userJson = prefs.getString(_userKey);
       if (userJson != null) {
         final userMap = json.decode(userJson) as Map<String, dynamic>;
         return UserModel.fromMap(userMap);
@@ -37,11 +36,42 @@ class SessionService {
     return null;
   }
 
+  // Get fresh user data from Firestore and update session
+  static Future<UserModel?> refreshUser() async {
+    try {
+      final cachedUser = await getUser();
+      if (cachedUser == null) return null;
+      
+      // Check if Firebase is ready before attempting refresh
+      if (!FirestoreService.isFirebaseReady) {
+        safePrint('🔥 Firebase not ready, using cached user data: ${cachedUser.displayName}');
+        return cachedUser;
+      }
+      
+      // Refresh user data from Firestore
+      final freshUser = await FirestoreService.getUserByEmail(cachedUser.emailAddress);
+      if (freshUser != null) {
+        // Update the cached session with fresh data
+        await saveUser(freshUser);
+        safePrint('✅ User session refreshed from Firestore: ${freshUser.displayName}');
+        return freshUser;
+      }
+      
+      // If Firestore fails, return cached user
+      safePrint('⚠️ Failed to refresh from Firestore, using cached user: ${cachedUser.displayName}');
+      return cachedUser;
+    } catch (e) {
+      safeError('Error refreshing user session: $e');
+      return await getUser(); // Fallback to cached data
+    }
+  }
+
   // Save game session
   static Future<void> saveGameSession(GameSessionModel gameSession) async {
     try {
+      final prefs = await SharedPreferences.getInstance();
       final gameJson = json.encode(gameSession.toJson());
-      await platform.setString(_gameSessionKey, gameJson);
+      await prefs.setString(_gameSessionKey, gameJson);
     } catch (e) {
       safeError('Error saving game session: $e');
     }
@@ -50,15 +80,17 @@ class SessionService {
   // Get saved game session
   static Future<GameSessionModel?> getGameSession() async {
     try {
-      final gameJson = await platform.getString(_gameSessionKey);
+      final prefs = await SharedPreferences.getInstance();
+      final gameJson = prefs.getString(_gameSessionKey);
       if (gameJson != null) {
         final gameMap = json.decode(gameJson) as Map<String, dynamic>;
         return GameSessionModel.fromJson(gameMap);
       }
     } catch (e) {
       safeError('Error loading game session: $e');
-      // Clear corrupted session data
-      await clearSession();
+      safePrint('⚠️ WARNING: Error loading game session, but NOT clearing - might be recoverable');
+      // DON'T clear session on load error - it might be a temporary issue
+      // Only clear if explicitly requested
     }
     return null;
   }
@@ -66,7 +98,8 @@ class SessionService {
   // Save current route
   static Future<void> saveCurrentRoute(String route) async {
     try {
-      await platform.setString(_currentRouteKey, route);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_currentRouteKey, route);
     } catch (e) {
       safeError('Error saving current route: $e');
     }
@@ -75,7 +108,8 @@ class SessionService {
   // Get saved route
   static Future<String?> getCurrentRoute() async {
     try {
-      return await platform.getString(_currentRouteKey);
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getString(_currentRouteKey);
     } catch (e) {
       safeError('Error loading current route: $e');
     }
@@ -85,9 +119,12 @@ class SessionService {
   // Clear all session data
   static Future<void> clearSession() async {
     try {
-      await platform.remove(_userKey);
-      await platform.remove(_gameSessionKey);
-      await platform.remove(_currentRouteKey);
+      safePrint('🧹 CLEARING SESSION - User requested session clear');
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_userKey);
+      await prefs.remove(_gameSessionKey);
+      await prefs.remove(_currentRouteKey);
+      safePrint('🧹 Session cleared successfully');
     } catch (e) {
       safeError('Error clearing session: $e');
     }
@@ -132,47 +169,69 @@ class SessionService {
     }
   }
 
-  // Get initial route that's safe for Firebase initialization state
-  static Future<String> getInitialRouteSafe(bool isFirebaseReady) async {
+  // Get initial route that's safe for local storage initialization state
+  static Future<String> getInitialRouteSafe(bool isStorageReady) async {
     try {
+      safePrint('📱 getInitialRouteSafe called with Storage ready: $isStorageReady');
       final savedRoute = await getCurrentRoute();
       final user = await getUser();
       final gameSession = await getGameSession();
+      
+      safePrint('🔍 Session check - savedRoute: $savedRoute');
+      safePrint('🔍 Session check - user: ${user?.displayName} (admin: ${user?.isAdmin})');
+      safePrint('🔍 Session check - gameSession: ${gameSession?.gameId} (status: ${gameSession?.status})');
 
-      // If Firebase isn't ready, avoid Firebase-dependent routes
-      if (!isFirebaseReady) {
-        // Clear any Firebase-dependent saved routes and default to home
-        if (savedRoute != null && (savedRoute.startsWith('/multiplayer-game') || 
-            savedRoute.startsWith('/admin-dashboard'))) {
-          await clearSession(); // Clear potentially stale session data
+      // If local storage isn't ready, we should still try to restore the session
+      // Don't clear valid sessions just because of storage issues
+      if (!isStorageReady) {
+        safePrint('⚠️ Local storage not ready, but checking if we can still restore session');
+        if (savedRoute != null && user != null && gameSession != null) {
+          // Try to restore the game even without storage ready (it might come online)
+          if (savedRoute.startsWith('/multiplayer-game') && 
+              (gameSession.status.toString().contains('inProgress') || 
+               gameSession.status.toString().contains('waitingForPlayers'))) {
+            safePrint('✅ STORAGE DOWN BUT RESTORING GAME: ${gameSession.gameId}');
+            safePrint('✅ User: ${user.displayName} will rejoin when storage comes online');
+            return savedRoute;
+          }
         }
+        safePrint('🏠 Local storage not ready and no valid session to restore, going to home');
         return '/';
       }
 
       // More aggressive check for any completed/cancelled games or games older than 24 hours
       // Also validate against Firebase to ensure the game still exists
       if (gameSession != null) {
+        safePrint('🔍 Checking saved game session: ${gameSession.gameId}, Status: ${gameSession.status}');
         final isOldGame = gameSession.endedAt != null && 
                          DateTime.now().difference(gameSession.endedAt!).inHours > 24;
         final isCompletedOrCancelled = gameSession.status == GameStatus.completed || 
                                       gameSession.status == GameStatus.cancelled;
+        safePrint('🔍 Game checks: isOld=$isOldGame, isCompleted=$isCompletedOrCancelled');
         
-        // Check if game still exists in Firebase (handles cases where Firebase data was deleted)
-        bool gameExistsInFirebase = false;
+        // Check if game still exists in local storage
+        bool gameExistsInStorage = true;
         try {
-          gameExistsInFirebase = await _checkGameExistsInFirebase(gameSession.gameId);
+          safePrint('🔍 Checking if game exists in local storage...');
+          final existingGame = await FirestoreService.getGameSession(gameSession.gameId);
+          gameExistsInStorage = existingGame != null;
+          safePrint('🔍 Game exists in local storage: $gameExistsInStorage');
         } catch (e) {
-          safePrint('❌ Error checking game existence in Firebase: $e');
-          gameExistsInFirebase = false; // Assume doesn't exist if error
+          safePrint('❌ Error checking game existence in local storage: $e');
+          gameExistsInStorage = false;
         }
         
-        if (isCompletedOrCancelled || isOldGame || !gameExistsInFirebase) {
-          safePrint('🚨 Found stale/completed/deleted game session on app launch - clearing and going to home');
-          safePrint('🚨 Game ID: ${gameSession.gameId}, Status: ${gameSession.status}, Old: $isOldGame, ExistsInFirebase: $gameExistsInFirebase');
+        // Only clear session if game is DEFINITELY completed/cancelled or very old
+        // Don't clear just because storage check fails
+        if (isCompletedOrCancelled || isOldGame || !gameExistsInStorage) {
+          safePrint('🚨 CLEARING SESSION: Found stale/completed game session on app launch');
+          safePrint('🚨 Game ID: ${gameSession.gameId}, Status: ${gameSession.status}, Old: $isOldGame');
+          safePrint('🚨 Reason: isCompleted=$isCompletedOrCancelled, isOld=$isOldGame');
           await clearSession();
           return '/';
         } else {
-          safePrint('✅ Found valid game session: ${gameSession.gameId}, Status: ${gameSession.status}');
+          safePrint('✅ PRESERVING SESSION: Found valid game session: ${gameSession.gameId}, Status: ${gameSession.status}');
+          safePrint('✅ Storage check result: $gameExistsInStorage (but allowing restoration anyway)');
         }
       }
 
@@ -182,6 +241,8 @@ class SessionService {
         if (savedRoute.startsWith('/multiplayer-game') && gameSession != null && 
            (gameSession.status == GameStatus.inProgress || gameSession.status == GameStatus.waitingForPlayers)) {
           safePrint('✅ Restoring active game session: ${gameSession.gameId}');
+          safePrint('✅ User: ${user.displayName} (${user.isAdmin ? 'Teacher' : 'Student'})');
+          safePrint('✅ Game Status: ${gameSession.status}');
           return savedRoute;
         } else if (savedRoute.startsWith('/admin-dashboard') && user.isAdmin) {
           // Teachers can always return to dashboard
@@ -191,8 +252,9 @@ class SessionService {
           // If user has a saved game route but game is not active, clear the game session
           if (savedRoute.startsWith('/multiplayer-game') && gameSession != null) {
             safePrint('🧹 Clearing inactive game session for fresh start');
-            await platform.remove(_gameSessionKey);
-            await platform.remove(_currentRouteKey);
+            final prefs = await SharedPreferences.getInstance();
+            await prefs.remove(_gameSessionKey);
+            await prefs.remove(_currentRouteKey);
           }
         }
         // Don't restore other routes - let users start fresh from home
@@ -203,26 +265,24 @@ class SessionService {
       return '/';
     } catch (e) {
       safeError('Error determining initial route: $e');
+      safePrint('🚨 CLEARING SESSION: Error during getInitialRouteSafe - $e');
       // If there's any error, clear session and go to home page
       await clearSession();
       return '/';
     }
   }
 
-  // Helper method to check if a game exists in Firebase
-  static Future<bool> _checkGameExistsInFirebase(String gameId) async {
+  // Helper method to check if a game exists in local storage
+  static Future<bool> _checkGameExistsInStorage(String gameId) async {
     try {
-      if (!FirestoreService.isFirebaseReady) {
-        return false; // If Firebase isn't ready, assume game doesn't exist
-      }
+      // Firebase is assumed initialized if we reach this point
       
-      // Try to get the game document from Firestore directly
-      final FirebaseFirestore firestore = FirebaseFirestore.instance;
-      final gameDoc = await firestore.collection('gameSessions').doc(gameId.toUpperCase()).get();
+      // Try to get the game from local storage directly
+      final gameSession = await FirestoreService.getGameSession(gameId.toUpperCase());
       
-      return gameDoc.exists;
+      return gameSession != null;
     } catch (e) {
-      safePrint('Error checking if game exists in Firebase: $e');
+      safePrint('Error checking if game exists in local storage: $e');
       return false; // If there's an error, assume game doesn't exist
     }
   }
