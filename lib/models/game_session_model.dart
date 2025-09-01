@@ -15,7 +15,7 @@ class GameSessionModel {
   final String? aiPrompt;
   final String? difficulty;
   final List<List<String>>? wordGrid; // 6x6 grid of words
-  final int maxPlayers; // Maximum number of players (1 or 2)
+  final int maxPlayers; // Maximum number of players
 
   GameSessionModel({
     required this.gameId,
@@ -204,7 +204,7 @@ class GameSessionModel {
       aiPrompt: json['aiPrompt'],
       difficulty: json['difficulty'],
       wordGrid: parseWordGrid(json['wordGrid'], json),
-      maxPlayers: json['maxPlayers'] ?? 2, // Default to 2 for backward compatibility
+      maxPlayers: json['maxPlayers'] ?? 2, // Default to 2 players
     );
   }
 
@@ -277,7 +277,7 @@ class GameSessionModel {
       aiPrompt: map['aiPrompt'],
       difficulty: map['difficulty'],
       wordGrid: parseWordGrid(map['wordGrid'], map),
-      maxPlayers: map['maxPlayers'] ?? 2, // Default to 2 for backward compatibility
+      maxPlayers: map['maxPlayers'] ?? 2, // Default to 2 players
     );
   }
 
@@ -365,6 +365,7 @@ class PlayerInGame {
   final int wordsRead;
   final bool isReady;
   final int? playerColor;
+  final String? avatarUrl;
 
   PlayerInGame({
     required this.userId,
@@ -374,6 +375,7 @@ class PlayerInGame {
     this.wordsRead = 0,
     this.isReady = false,
     this.playerColor,
+    this.avatarUrl,
   });
 
   Map<String, dynamic> toMap() {
@@ -385,6 +387,7 @@ class PlayerInGame {
       'wordsRead': wordsRead,
       'isReady': isReady,
       'playerColor': playerColor,
+      'avatarUrl': avatarUrl,
     };
   }
 
@@ -398,6 +401,7 @@ class PlayerInGame {
       'wordsRead': wordsRead,
       'isReady': isReady,
       'playerColor': playerColor,
+      'avatarUrl': avatarUrl,
     };
   }
 
@@ -424,6 +428,7 @@ class PlayerInGame {
       wordsRead: (json['wordsRead'] ?? 0).toInt(),
       isReady: json['isReady'] ?? false,
       playerColor: json['playerColor'],
+      avatarUrl: json['avatarUrl'],
     );
   }
 
@@ -443,6 +448,7 @@ class PlayerInGame {
       wordsRead: (map['wordsRead'] ?? 0).toInt(),
       isReady: map['isReady'] ?? false,
       playerColor: map['playerColor'],
+      avatarUrl: map['avatarUrl'],
     );
   }
 
@@ -454,6 +460,7 @@ class PlayerInGame {
     int? wordsRead,
     bool? isReady,
     int? playerColor,
+    String? avatarUrl,
   }) {
     return PlayerInGame(
       userId: userId ?? this.userId,
@@ -463,6 +470,7 @@ class PlayerInGame {
       wordsRead: wordsRead ?? this.wordsRead,
       isReady: isReady ?? this.isReady,
       playerColor: playerColor ?? this.playerColor,
+      avatarUrl: avatarUrl ?? this.avatarUrl,
     );
   }
 }

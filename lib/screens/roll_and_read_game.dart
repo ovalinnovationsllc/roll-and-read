@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'dart:math';
+import 'dart:io';
 import 'package:flutter_tts/flutter_tts.dart';
 import '../config/app_colors.dart';
 import '../widgets/animated_dice.dart';
@@ -7,6 +8,7 @@ import '../services/datamuse_service.dart';
 import '../models/user_model.dart';
 import '../models/game_session_model.dart';
 import '../services/sound_service.dart';
+import '../utils/tts_helper.dart';
 
 class RollAndReadGame extends StatefulWidget {
   final UserModel? user;
@@ -55,12 +57,26 @@ class _RollAndReadGameState extends State<RollAndReadGame> {
     }
   }
 
-  void _initializeTts() {
-    _flutterTts = FlutterTts();
-    _flutterTts.setLanguage("en-US");
-    _flutterTts.setSpeechRate(0.5); // Slower speech for young learners
-    _flutterTts.setVolume(1.0);
-    _flutterTts.setPitch(1.0);
+  Future<void> _initializeTts() async {
+    try {
+      _flutterTts = FlutterTts();
+      await _flutterTts.setLanguage("en-US");
+      
+      // Set a specific voice that sounds more natural on iOS
+      if (Platform.isIOS) {
+        // Use the helper to set iOS voice with multiple fallbacks
+        await TTSHelper.setIOSVoice(_flutterTts);
+        
+        // Uncomment the line below to debug and see available voices
+        // await TTSHelper.logAvailableVoices();
+      }
+      
+      await _flutterTts.setSpeechRate(0.5); // Slower speech for young learners
+      await _flutterTts.setVolume(1.0);
+      await _flutterTts.setPitch(1.0);
+    } catch (e) {
+      print('TTS initialization error: $e');
+    }
   }
 
   @override

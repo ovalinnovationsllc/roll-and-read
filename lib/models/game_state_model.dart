@@ -36,9 +36,53 @@ class PronunciationAttempt {
   }
 }
 
+class PronunciationLogEntry {
+  final String playerId;
+  final String playerName;
+  final String cellKey;
+  final String word;
+  final DateTime attemptTime;
+  final DateTime resolvedTime;
+  final bool approved; // true = approved, false = rejected
+  
+  PronunciationLogEntry({
+    required this.playerId,
+    required this.playerName,
+    required this.cellKey,
+    required this.word,
+    required this.attemptTime,
+    required this.resolvedTime,
+    required this.approved,
+  });
+  
+  Map<String, dynamic> toMap() {
+    return {
+      'playerId': playerId,
+      'playerName': playerName,
+      'cellKey': cellKey,
+      'word': word,
+      'attemptTime': Timestamp.fromDate(attemptTime),
+      'resolvedTime': Timestamp.fromDate(resolvedTime),
+      'approved': approved,
+    };
+  }
+  
+  factory PronunciationLogEntry.fromMap(Map<String, dynamic> map) {
+    return PronunciationLogEntry(
+      playerId: map['playerId'] ?? '',
+      playerName: map['playerName'] ?? '',
+      cellKey: map['cellKey'] ?? '',
+      word: map['word'] ?? '',
+      attemptTime: (map['attemptTime'] as Timestamp).toDate(),
+      resolvedTime: (map['resolvedTime'] as Timestamp).toDate(),
+      approved: map['approved'] ?? false,
+    );
+  }
+}
+
 class GameStateModel {
   final String gameId;
-  final int currentDiceValue;
+  final int? currentDiceValue;
   final String? currentPlayerId; // Player who rolled the dice
   final Map<String, Set<String>> playerCompletedCells; // playerId -> set of cell keys
   final Map<String, int> playerScores; // playerId -> score
@@ -48,10 +92,11 @@ class GameStateModel {
   final bool simultaneousPlay; // true = both play at same time, false = turn-based
   final Set<String> contestedCells; // cells that are currently contested (both players selected)
   final Map<String, PronunciationAttempt> pendingPronunciations; // cellKey -> pronunciation attempt
+  final List<PronunciationLogEntry> pronunciationLog; // completed pronunciation attempts (approved/rejected)
 
   GameStateModel({
     required this.gameId,
-    this.currentDiceValue = 1,
+    this.currentDiceValue, // null means no dice rolled yet
     this.currentPlayerId,
     Map<String, Set<String>>? playerCompletedCells,
     Map<String, int>? playerScores,
@@ -61,10 +106,12 @@ class GameStateModel {
     this.simultaneousPlay = true, // Default to simultaneous play
     Set<String>? contestedCells,
     Map<String, PronunciationAttempt>? pendingPronunciations,
+    List<PronunciationLogEntry>? pronunciationLog,
   }) : playerCompletedCells = playerCompletedCells ?? {},
        playerScores = playerScores ?? {},
        contestedCells = contestedCells ?? {},
-       pendingPronunciations = pendingPronunciations ?? {};
+       pendingPronunciations = pendingPronunciations ?? {},
+       pronunciationLog = pronunciationLog ?? [];
 
   Map<String, dynamic> toMap() {
     return {
@@ -83,6 +130,7 @@ class GameStateModel {
       'pendingPronunciations': pendingPronunciations.map(
         (key, value) => MapEntry(key, value.toMap()),
       ),
+      'pronunciationLog': pronunciationLog.map((entry) => entry.toMap()).toList(),
     };
   }
 
@@ -101,9 +149,16 @@ class GameStateModel {
       });
     }
 
+    List<PronunciationLogEntry> logEntries = [];
+    if (map['pronunciationLog'] != null) {
+      logEntries = (map['pronunciationLog'] as List)
+          .map((entry) => PronunciationLogEntry.fromMap(entry as Map<String, dynamic>))
+          .toList();
+    }
+
     return GameStateModel(
       gameId: map['gameId'] ?? '',
-      currentDiceValue: map['currentDiceValue'] ?? 1,
+      currentDiceValue: map['currentDiceValue'],
       currentPlayerId: map['currentPlayerId'],
       playerCompletedCells: completedCells,
       playerScores: Map<String, int>.from(map['playerScores'] ?? {}),
@@ -115,6 +170,7 @@ class GameStateModel {
       simultaneousPlay: map['simultaneousPlay'] ?? true,
       contestedCells: Set<String>.from(map['contestedCells'] ?? []),
       pendingPronunciations: pronunciations,
+      pronunciationLog: logEntries,
     );
   }
 
@@ -130,10 +186,12 @@ class GameStateModel {
     bool? simultaneousPlay,
     Set<String>? contestedCells,
     Map<String, PronunciationAttempt>? pendingPronunciations,
+    List<PronunciationLogEntry>? pronunciationLog,
+    bool resetDiceValue = false, // Explicit flag to reset dice to null
   }) {
     return GameStateModel(
       gameId: gameId ?? this.gameId,
-      currentDiceValue: currentDiceValue ?? this.currentDiceValue,
+      currentDiceValue: resetDiceValue ? null : (currentDiceValue ?? this.currentDiceValue),
       currentPlayerId: currentPlayerId ?? this.currentPlayerId,
       playerCompletedCells: playerCompletedCells ?? this.playerCompletedCells,
       playerScores: playerScores ?? this.playerScores,
@@ -143,10 +201,11 @@ class GameStateModel {
       simultaneousPlay: simultaneousPlay ?? this.simultaneousPlay,
       contestedCells: contestedCells ?? this.contestedCells,
       pendingPronunciations: pendingPronunciations ?? this.pendingPronunciations,
+      pronunciationLog: pronunciationLog ?? this.pronunciationLog,
     );
   }
 
-  // Helper method to add a completed cell for a player
+  // Helper method to add a completed cell for a player (handles stealing)
   GameStateModel markCellCompleted(String playerId, String cellKey) {
     final updatedCells = Map<String, Set<String>>.from(playerCompletedCells);
     final updatedScores = Map<String, int>.from(playerScores);
@@ -166,14 +225,29 @@ class GameStateModel {
     }
     
     if (currentOwner != null) {
-      // Square is owned by another player - this becomes a contested square
+      // STEALING: Square is owned by another player
+      print('🔥 STEAL: $playerId is stealing $cellKey from $currentOwner');
+      
+      // Remove cell from original owner's collection  
+      updatedCells[currentOwner] = Set<String>.from(updatedCells[currentOwner]!)..remove(cellKey);
+      
+      // Add cell to stealer's collection (complete transfer of ownership)
       updatedCells[playerId] = Set<String>.from(updatedCells[playerId]!)..add(cellKey);
-      updatedContestedCells.add(cellKey);
-      // No score change yet - contested squares don't give points
+      
+      // Remove from contested cells (cell now has single owner)
+      updatedContestedCells.remove(cellKey);
+      
+      // Update scores: +1 for stealer, -1 for original owner
+      updatedScores[playerId] = (updatedScores[playerId] ?? 0) + 1;
+      updatedScores[currentOwner] = (updatedScores[currentOwner] ?? 0) - 1;
+      if (updatedScores[currentOwner]! < 0) updatedScores[currentOwner] = 0;
+      
+      print('  Scores after steal: $playerId=${updatedScores[playerId]}, $currentOwner=${updatedScores[currentOwner]}');
     } else {
       // Square is free - player takes it normally
       updatedCells[playerId] = Set<String>.from(updatedCells[playerId]!)..add(cellKey);
       updatedScores[playerId] = (updatedScores[playerId] ?? 0) + 1;
+      print('✅ CLAIM: $playerId claimed free cell $cellKey, score=${updatedScores[playerId]}');
     }
     
     return copyWith(
@@ -362,19 +436,34 @@ class GameStateModel {
     }
     
     if (currentTurnPlayerId == null) {
-      // Start with first player
-      return copyWith(currentTurnPlayerId: playerIds.first);
+      // Start with first player, reset dice for fresh turn
+      return copyWith(
+        currentTurnPlayerId: playerIds.first,
+        currentPlayerId: null,
+        lastDiceRoll: null,
+        resetDiceValue: true, // Reset dice value for fresh turn
+      );
     }
     
     final currentIndex = playerIds.indexOf(currentTurnPlayerId!);
     if (currentIndex == -1) {
       // Current player not found, start with first player
-      return copyWith(currentTurnPlayerId: playerIds.first);
+      return copyWith(
+        currentTurnPlayerId: playerIds.first,
+        currentPlayerId: null,
+        lastDiceRoll: null,
+        resetDiceValue: true, // Reset dice value for fresh turn
+      );
     }
     
     // Switch to next player (wrap around if at end)
     final nextIndex = (currentIndex + 1) % playerIds.length;
-    return copyWith(currentTurnPlayerId: playerIds[nextIndex]);
+    return copyWith(
+      currentTurnPlayerId: playerIds[nextIndex],
+      currentPlayerId: null,
+      lastDiceRoll: null,
+      resetDiceValue: true, // Reset dice value for fresh turn
+    );
   }
   
   // Helper method to check if a player has won (6 in a row horizontally, vertically, or diagonally)
@@ -389,12 +478,13 @@ class GameStateModel {
   
   bool _hasPlayerWon(String playerId) {
     final cells = playerCompletedCells[playerId] ?? {};
+    print('DEBUG: Checking win condition for $playerId with ${cells.length} cells: $cells');
     if (cells.length < 6) return false; // Need at least 6 cells to win
     
     // Convert cell keys to coordinates
     final coordinates = <List<int>>[];
     for (String cellKey in cells) {
-      final parts = cellKey.split('-');
+      final parts = cellKey.split(','); // Changed from '-' to ',' to match actual format
       if (parts.length == 2) {
         final row = int.tryParse(parts[0]);
         final col = int.tryParse(parts[1]);
@@ -404,8 +494,12 @@ class GameStateModel {
       }
     }
     
+    print('DEBUG: Parsed coordinates: $coordinates');
+    
     // Check all possible lines of 6
-    return _checkLines(coordinates);
+    final hasWon = _checkLines(coordinates);
+    print('DEBUG: Player $playerId won: $hasWon');
+    return hasWon;
   }
   
   bool _checkLines(List<List<int>> coordinates) {
@@ -415,11 +509,10 @@ class GameStateModel {
       for (int col = 0; col < 6; col++) {
         if (coordinates.any((coord) => coord[0] == row && coord[1] == col)) {
           count++;
-        } else {
-          count = 0; // Reset if broken
         }
-        if (count >= 6) return true;
       }
+      print('DEBUG: Row $row has $count cells');
+      if (count >= 6) return true;
     }
     
     // Check vertical lines (same column)
@@ -428,11 +521,10 @@ class GameStateModel {
       for (int row = 0; row < 6; row++) {
         if (coordinates.any((coord) => coord[0] == row && coord[1] == col)) {
           count++;
-        } else {
-          count = 0; // Reset if broken
         }
-        if (count >= 6) return true;
       }
+      print('DEBUG: Column $col has $count cells');
+      if (count >= 6) return true;
     }
     
     // Check diagonal lines (top-left to bottom-right)

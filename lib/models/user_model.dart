@@ -12,6 +12,7 @@ class UserModel {
   final int wordsCorrect;
   final DateTime createdAt;
   final Color? playerColor;
+  final String? avatarUrl;
 
   UserModel({
     required this.id,
@@ -24,6 +25,7 @@ class UserModel {
     this.wordsCorrect = 0,
     required this.createdAt,
     this.playerColor,
+    this.avatarUrl,
   });
 
   // Create a new user
@@ -34,6 +36,7 @@ class UserModel {
     required String pin,
     bool isAdmin = false,
     Color? playerColor,
+    String? avatarUrl,
   }) {
     return UserModel(
       id: id,
@@ -46,6 +49,30 @@ class UserModel {
       wordsCorrect: 0,
       createdAt: DateTime.now(),
       playerColor: playerColor,
+      avatarUrl: avatarUrl,
+    );
+  }
+
+  // Create a new admin user
+  factory UserModel.createAdmin({
+    required String id,
+    required String displayName,
+    required String emailAddress,
+    Color? playerColor,
+    String? avatarUrl,
+  }) {
+    return UserModel(
+      id: id,
+      displayName: displayName,
+      emailAddress: emailAddress,
+      pin: '', // No PIN needed for admin
+      isAdmin: true,
+      gamesPlayed: 0,
+      gamesWon: 0,
+      wordsCorrect: 0,
+      createdAt: DateTime.now(),
+      playerColor: playerColor,
+      avatarUrl: avatarUrl,
     );
   }
 
@@ -62,6 +89,7 @@ class UserModel {
       'wordsCorrect': wordsCorrect,
       'createdAt': Timestamp.fromDate(createdAt),
       'playerColor': playerColor?.value,
+      'avatarUrl': avatarUrl,
     };
   }
 
@@ -88,6 +116,7 @@ class UserModel {
       wordsCorrect: (map['wordsCorrect'] ?? 0).toInt(),
       createdAt: parseDateTime(map['createdAt']),
       playerColor: map['playerColor'] != null ? Color(map['playerColor']) : null,
+      avatarUrl: map['avatarUrl'],
     );
   }
 
@@ -104,6 +133,7 @@ class UserModel {
       'wordsCorrect': wordsCorrect,
       'createdAt': createdAt.toIso8601String(),
       'playerColor': playerColor?.value,
+      'avatarUrl': avatarUrl,
     };
   }
 
@@ -135,6 +165,7 @@ class UserModel {
       wordsCorrect: (json['wordsCorrect'] ?? 0).toInt(),
       createdAt: parseDateTime(json['createdAt']),
       playerColor: json['playerColor'] != null ? Color(json['playerColor']) : null,
+      avatarUrl: json['avatarUrl'],
     );
   }
 
@@ -150,6 +181,7 @@ class UserModel {
     int? wordsCorrect,
     DateTime? createdAt,
     Color? playerColor,
+    String? avatarUrl,
   }) {
     return UserModel(
       id: id ?? this.id,
@@ -162,6 +194,7 @@ class UserModel {
       wordsCorrect: wordsCorrect ?? this.wordsCorrect,
       createdAt: createdAt ?? this.createdAt,
       playerColor: playerColor ?? this.playerColor,
+      avatarUrl: avatarUrl ?? this.avatarUrl,
     );
   }
 

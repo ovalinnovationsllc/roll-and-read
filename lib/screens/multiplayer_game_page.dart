@@ -3,7 +3,7 @@ import '../config/app_colors.dart';
 import '../models/user_model.dart';
 import '../models/game_session_model.dart';
 import '../services/game_session_service.dart';
-import 'multiplayer_roll_and_read.dart';
+import 'clean_multiplayer_screen.dart';
 
 class MultiplayerGamePage extends StatefulWidget {
   final UserModel user;
@@ -350,7 +350,7 @@ class _MultiplayerGamePageState extends State<MultiplayerGamePage> {
           // Player status bar
           // Game content
           Expanded(
-            child: MultiplayerRollAndRead(
+            child: CleanMultiplayerScreen(
               user: widget.user,
               gameSession: gameSession,
             ),

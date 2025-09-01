@@ -1,8 +1,15 @@
 import 'package:flutter/material.dart';
+import 'dart:convert';
 import '../config/app_colors.dart';
+import '../services/session_service.dart';
+import '../utils/safe_print.dart';
 import 'admin_login_page.dart';
 import 'user_login_page.dart';
 import 'game_join_page.dart';
+import 'simple_student_selector.dart';
+import 'simple_game_join_page.dart';
+import 'student_selection_for_join.dart';
+import 'clean_multiplayer_screen.dart';
 
 class LandingPage extends StatelessWidget {
   const LandingPage({super.key});
@@ -96,91 +103,245 @@ class LandingPage extends StatelessWidget {
                         
                         const SizedBox(height: 60),
                         
-                        // Join Game button
+                        
+                        // Join Game button for students
                         ElevatedButton(
                           onPressed: () {
-                            Navigator.pushNamed(context, '/game-join');
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => StudentSelectionForJoin(),
+                              ),
+                            );
                           },
                           style: ElevatedButton.styleFrom(
                             backgroundColor: AppColors.primary,
-                            foregroundColor: AppColors.onPrimary,
+                            foregroundColor: Colors.white,
                             padding: EdgeInsets.symmetric(
-                              horizontal: isTablet ? 60 : 50,
-                              vertical: isTablet ? 25 : 20,
+                              horizontal: isTablet ? 60 : 45,
+                              vertical: isTablet ? 20 : 16,
                             ),
                             shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(35),
+                              borderRadius: BorderRadius.circular(25),
                             ),
                             elevation: 8,
-                            shadowColor: AppColors.mediumBlue,
+                            shadowColor: AppColors.primary,
                           ),
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(
-                                Icons.play_circle_filled,
-                                size: isTablet ? 32 : 28,
+                              Image.asset(
+                                'assets/images/dice_blue.png',
+                                width: isTablet ? 28 : 22,
+                                height: isTablet ? 28 : 22,
+                                errorBuilder: (context, error, stackTrace) {
+                                  return Icon(
+                                    Icons.casino,
+                                    size: isTablet ? 28 : 22,
+                                  );
+                                },
                               ),
                               const SizedBox(width: 12),
                               Text(
                                 'JOIN GAME',
                                 style: TextStyle(
-                                  fontSize: isTablet ? 22 : 18,
+                                  fontSize: isTablet ? 20 : 16,
                                   fontWeight: FontWeight.bold,
-                                  letterSpacing: 1.5,
+                                  letterSpacing: 1,
                                 ),
                               ),
                             ],
                           ),
                         ),
+                        
+                        const SizedBox(height: 20),
+                        
+                        // Debug: Resume Game button - REMOVED
+                        /* OutlinedButton(
+                          onPressed: () async {
+                            try {
+                              final user = await SessionService.getUser();
+                              final gameSession = await SessionService.getGameSession();
+                              final savedRoute = await SessionService.getCurrentRoute();
+                              
+                              safePrint('🐛 DEBUG - Detailed session check:');
+                              safePrint('🐛 User: ${user?.displayName} (admin: ${user?.isAdmin}, id: ${user?.id})');
+                              safePrint('🐛 Game: ${gameSession?.gameId} (status: ${gameSession?.status})');
+                              safePrint('🐛 Game players: ${gameSession?.players.map((p) => '${p.displayName}(${p.userId})').toList()}');
+                              safePrint('🐛 Game created: ${gameSession?.createdAt}');
+                              safePrint('🐛 Game ended: ${gameSession?.endedAt}');
+                              safePrint('🐛 Route: $savedRoute');
+                              
+                              // Show this info to user too
+                              final debugInfo = '''
+User: ${user?.displayName ?? 'null'} (${user?.isAdmin == true ? 'Teacher' : 'Student'})
+Game: ${gameSession?.gameId ?? 'null'}
+Status: ${gameSession?.status ?? 'null'}
+Route: ${savedRoute ?? 'null'}
+Players: ${gameSession?.players.length ?? 0}
+Created: ${gameSession?.createdAt ?? 'null'}
+Ended: ${gameSession?.endedAt ?? 'null'}
+Winner: ${gameSession?.winnerId ?? 'none'}
+                              ''';
+                              
+                              if (user != null && gameSession != null && 
+                                  (gameSession.status.toString().contains('inProgress') || 
+                                   gameSession.status.toString().contains('waitingForPlayers'))) {
+                                safePrint('🐛 Attempting to resume game...');
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => CleanMultiplayerScreen(
+                                      gameSession: gameSession,
+                                      user: user,
+                                      isTeacherMode: user.isAdmin,
+                                    ),
+                                  ),
+                                );
+                              } else {
+                                // Show debug info to user with force resume option
+                                showDialog(
+                                  context: context,
+                                  builder: (context) => AlertDialog(
+                                    title: const Text('Debug: Session Data'),
+                                    content: SingleChildScrollView(
+                                      child: Column(
+                                        mainAxisSize: MainAxisSize.min,
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(debugInfo),
+                                          if (user != null && gameSession != null)
+                                            const SizedBox(height: 16),
+                                          if (user != null && gameSession != null)
+                                            Text(
+                                              'Game status is "${gameSession.status}". Force resume anyway?',
+                                              style: const TextStyle(fontWeight: FontWeight.bold),
+                                            ),
+                                        ],
+                                      ),
+                                    ),
+                                    actions: [
+                                      if (user != null && gameSession != null)
+                                        TextButton(
+                                          onPressed: () {
+                                            Navigator.pop(context);
+                                            safePrint('🐛 FORCE resuming game despite status');
+                                            Navigator.push(
+                                              context,
+                                              MaterialPageRoute(
+                                                builder: (context) => CleanMultiplayerScreen(
+                                                  gameSession: gameSession,
+                                                  user: user,
+                                                  isTeacherMode: user.isAdmin,
+                                                            ),
+                                              ),
+                                            );
+                                          },
+                                          child: const Text('FORCE RESUME'),
+                                        ),
+                                      TextButton(
+                                        onPressed: () => Navigator.pop(context),
+                                        child: const Text('OK'),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              }
+                            } catch (e) {
+                              safePrint('🐛 Error checking session: $e');
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text('Error: $e')),
+                              );
+                            }
+                          },
+                          style: OutlinedButton.styleFrom(
+                            side: BorderSide(color: AppColors.mediumBlue),
+                            foregroundColor: AppColors.mediumBlue,
+                            padding: EdgeInsets.symmetric(
+                              horizontal: isTablet ? 40 : 30,
+                              vertical: isTablet ? 15 : 12,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                          ),
+                          child: Text(
+                            'RESUME GAME',
+                            style: TextStyle(
+                              fontSize: isTablet ? 16 : 14,
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 1,
+                            ),
+                          ),
+                        ), */
                       ],
                     ),
                   ),
                 ),
               ),
               
-              // Footer at bottom
+              // Footer at bottom - hidden teacher access
               Positioned(
                 bottom: 20,
                 left: 0,
                 right: 0,
                 child: Column(
                   children: [
-                    // Teacher access button
-                    TextButton(
-                      onPressed: () {
-                        Navigator.pushNamed(context, '/teacher-login');
-                      },
-                      style: TextButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            Icons.admin_panel_settings,
-                            size: isTablet ? 20 : 18,
-                            color: AppColors.textSecondary,
+                    // Hidden teacher access via long press on company name
+                    GestureDetector(
+                      onLongPress: () {
+                        // Show teacher access options after long press
+                        showModalBottomSheet(
+                          context: context,
+                          backgroundColor: Colors.white,
+                          shape: const RoundedRectangleBorder(
+                            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
                           ),
-                          const SizedBox(width: 6),
-                          Text(
-                            'Teacher Access',
-                            style: TextStyle(
-                              fontSize: isTablet ? 15 : 13,
-                              color: AppColors.textSecondary,
-                              fontWeight: FontWeight.w500,
+                          builder: (context) => SafeArea(
+                            child: Padding(
+                              padding: const EdgeInsets.all(20),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    'Teacher & Admin Access',
+                                    style: TextStyle(
+                                      fontSize: isTablet ? 20 : 18,
+                                      fontWeight: FontWeight.bold,
+                                      color: AppColors.primary,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 20),
+                                  
+                                  // Teacher Dashboard
+                                  ListTile(
+                                    leading: const Icon(Icons.admin_panel_settings, color: AppColors.adminPrimary),
+                                    title: const Text('Teacher Dashboard'),
+                                    subtitle: const Text('Manage students and games'),
+                                    onTap: () {
+                                      Navigator.pop(context);
+                                      Navigator.pushNamed(context, '/teacher-login');
+                                    },
+                                  ),
+                                  
+                                  const SizedBox(height: 10),
+                                  TextButton(
+                                    onPressed: () => Navigator.pop(context),
+                                    child: const Text('Cancel'),
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Built by Oval Innovations, LLC',
-                      style: TextStyle(
-                        fontSize: isTablet ? 12 : 11,
-                        color: AppColors.textDisabled,
-                        fontStyle: FontStyle.italic,
+                        );
+                      },
+                      child: Text(
+                        'Built by Oval Innovations, LLC',
+                        style: TextStyle(
+                          fontSize: isTablet ? 12 : 11,
+                          color: AppColors.textDisabled,
+                          fontStyle: FontStyle.italic,
+                        ),
                       ),
                     ),
                   ],

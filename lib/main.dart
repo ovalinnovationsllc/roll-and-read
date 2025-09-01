@@ -1,17 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
-import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'firebase_options.dart';
 import 'dart:async';
 import 'utils/safe_print.dart';
-import 'config/app_config.dart';
 import 'config/app_colors.dart';
 import 'screens/landing_page.dart';
 import 'screens/admin_login_page.dart';
 import 'screens/admin_dashboard_page.dart';
 import 'screens/user_login_page.dart';
 import 'screens/game_join_page.dart';
-import 'screens/multiplayer_game_page.dart';
+import 'screens/student_join_game_page.dart';
+import 'screens/clean_multiplayer_screen.dart';
+import 'screens/teacher_pronunciation_monitor.dart';
 import 'models/user_model.dart';
 import 'models/game_session_model.dart';
 import 'services/session_service.dart';
@@ -26,13 +28,39 @@ void main() async {
     FlutterError.onError = (FlutterErrorDetails details) {
       // Filter out known web-specific rendering errors that don't affect functionality
       final errorMessage = details.exception.toString();
+      final stackTrace = details.stack.toString();
+      
+      // In release builds, suppress all Flutter Web JavaScript interop errors
+      if (kReleaseMode && kIsWeb) {
+        if (errorMessage.contains('TypeError') || 
+            errorMessage.contains('LegacyJavaScriptObject') ||
+            stackTrace.contains('framework.dart')) {
+          return; // Completely suppress in release web builds
+        }
+      }
+      
       if (errorMessage.contains('Trying to render a disposed EngineFlutterView') ||
           errorMessage.contains('Noto fonts') ||
           errorMessage.contains('!isDisposed') ||
-          errorMessage.contains('Unable to load asset: "AssetManifest.bin.json"') ||
-          errorMessage.contains('Flutter Web engine failed to fetch')) {
-        // These are known Flutter Web issues that don't break functionality
+          errorMessage.contains('a[\$keys] is not iterable') ||
+          errorMessage.contains('LegacyJavaScriptObject') ||
+          errorMessage.contains('is not a subtype of type \'RenderObject\'') ||
+          errorMessage.contains('Failed to execute \'measure\' on \'Performance\'') ||
+          errorMessage.contains('!_doingMountOrUpdate') ||
+          stackTrace.contains('mapEquals') ||
+          stackTrace.contains('button_style.dart') ||
+          stackTrace.contains('icon_button_theme.dart') ||
+          stackTrace.contains('image_cache.dart') ||
+          stackTrace.contains('image_stream.dart') ||
+          (stackTrace.contains('framework.dart') && errorMessage.contains('TypeError'))) {
+        // These are known Flutter Web JavaScript interop issues that don't break functionality
         return;
+      }
+      
+      // Log AssetManifest errors but don't suppress them - they indicate real issues
+      if (errorMessage.contains('AssetManifest') || errorMessage.contains('Flutter Web engine failed to fetch')) {
+        safePrint('🌐 Web Asset Loading Issue: $errorMessage');
+        safePrint('📍 This may indicate a server configuration problem');
       }
       
       safePrint('Flutter error: ${details.exception}');
@@ -50,6 +78,22 @@ Future<void> _initializeApp() async {
   safePrint('🚀 Starting app initialization...');
   
   try {
+    // Initialize Firebase FIRST
+    try {
+      safePrint('🔥 Initializing Firebase...');
+      await Firebase.initializeApp(
+        options: DefaultFirebaseOptions.currentPlatform,
+      );
+      safePrint('✅ Firebase initialized successfully');
+      
+      // Mark Firebase as ready for FirestoreService
+      FirestoreService.setFirebaseReady(true);
+      safePrint('✅ FirestoreService marked as ready');
+    } catch (e) {
+      safePrint('❌ Firebase initialization failed: $e');
+      safePrint('⚠️ Continuing without Firebase...');
+    }
+    
     // Load environment variables
     try {
       safePrint('📁 Loading .env file...');
@@ -59,56 +103,12 @@ Future<void> _initializeApp() async {
       safePrint('❌ Could not load .env file: $e');
     }
     
-    // Initialize Firebase with better error handling
-    try {
-      safePrint('🔥 Initializing Firebase...');
-      
-      // Use platform-specific configuration
-      // iOS: Uses GoogleService-Info.plist
-      // Android: Uses google-services.json
-      // Web: Uses custom options from environment
-      if (defaultTargetPlatform == TargetPlatform.iOS || 
-          defaultTargetPlatform == TargetPlatform.android) {
-        // Use default Firebase configuration files
-        await Firebase.initializeApp();
-      } else {
-        // Web platform - use custom options from environment
-        if (AppConfig.firebaseApiKey.isEmpty || 
-            AppConfig.firebaseProjectId.isEmpty || 
-            AppConfig.firebaseAppId.isEmpty) {
-          throw Exception('Missing Firebase configuration for web platform');
-        }
-        
-        await Firebase.initializeApp(
-          options: FirebaseOptions(
-            apiKey: AppConfig.firebaseApiKey,
-            authDomain: AppConfig.firebaseAuthDomain,
-            projectId: AppConfig.firebaseProjectId,
-            storageBucket: AppConfig.firebaseStorageBucket,
-            messagingSenderId: AppConfig.firebaseMessagingSenderId,
-            appId: AppConfig.firebaseAppId,
-          ),
-        );
-      }
-      
-      // Set Firebase as ready for Firestore operations
-      FirestoreService.setFirebaseReady(true);
-      safePrint('✅ Firebase initialized successfully');
-      
-    } catch (e) {
-      safePrint('❌ Firebase initialization failed: $e');
-      FirestoreService.setFirebaseReady(false);
-    }
-    
-    // Get Firebase-safe initial route
+    // Get initial route
     safePrint('📱 Getting initial route...');
     String initialRoute = '/';
     try {
-      // Use Firebase-safe route determination
-      final isFirebaseReady = FirestoreService.isFirebaseReady;
-      safePrint('🔥 Firebase ready status: $isFirebaseReady');
-      initialRoute = await SessionService.getInitialRouteSafe(isFirebaseReady);
-      safePrint('✅ Initial route (Firebase ready: $isFirebaseReady): $initialRoute');
+      initialRoute = await SessionService.getInitialRouteSafe(true); // Firebase is always ready when initialized
+      safePrint('✅ Initial route: $initialRoute');
     } catch (e) {
       safePrint('❌ Error getting initial route: $e');
       initialRoute = '/';
@@ -168,6 +168,7 @@ class MyApp extends StatelessWidget {
         '/teacher-login': (context) => const AdminLoginPage(),
         '/user-login': (context) => const UserLoginPage(),
         '/game-join': (context) => const GameJoinPage(),
+        '/student-join-game': (context) => const StudentJoinGamePage(),
         '/admin-dashboard': (context) => const AdminDashboardWrapper(),
       },
       onGenerateRoute: (settings) {
@@ -188,13 +189,28 @@ class MyApp extends StatelessWidget {
           final args = settings.arguments as Map<String, dynamic>?;
           if (args != null && args['user'] != null && args['gameSession'] != null) {
             // Direct navigation with arguments (from game join)
-            return MaterialPageRoute(
-              builder: (context) => MultiplayerGamePage(
-                user: args['user'] as UserModel,
-                gameSession: args['gameSession'] as GameSessionModel,
-              ),
-              settings: settings,
-            );
+            final user = args['user'] as UserModel;
+            final gameSession = args['gameSession'] as GameSessionModel;
+            
+            // Different screens for teacher vs student
+            if (user.isAdmin) {
+              return MaterialPageRoute(
+                builder: (context) => TeacherPronunciationMonitor(
+                  user: user,
+                  gameSession: gameSession,
+                ),
+                settings: settings,
+              );
+            } else {
+              return MaterialPageRoute(
+                builder: (context) => CleanMultiplayerScreen(
+                  user: user,
+                  gameSession: gameSession,
+                  isTeacherMode: false,
+                ),
+                settings: settings,
+              );
+            }
           } else {
             // No arguments provided - use session wrapper for restoration
             return MaterialPageRoute(
@@ -219,30 +235,45 @@ class MyApp extends StatelessWidget {
 class AdminDashboardWrapper extends StatelessWidget {
   const AdminDashboardWrapper({super.key});
 
-  @override
-  Widget build(BuildContext context) {
-    // Check if Firebase is ready before attempting to load user data
-    if (!FirestoreService.isFirebaseReady) {
-      safePrint('AdminDashboardWrapper - Firebase not ready, redirecting to home');
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        Navigator.of(context).pushReplacementNamed('/');
-      });
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      );
+  Future<UserModel?> _loadUserWithFirebaseWait() async {
+    // Wait for Firebase to be ready with timeout
+    int attempts = 0;
+    while (!FirestoreService.isFirebaseReady && attempts < 10) {
+      print('AdminDashboardWrapper - Waiting for Firebase to be ready (attempt ${attempts + 1})');
+      await Future.delayed(const Duration(milliseconds: 500));
+      attempts++;
     }
     
+    if (!FirestoreService.isFirebaseReady) {
+      print('AdminDashboardWrapper - Firebase not ready after timeout, using cached data');
+    }
+    
+    return await SessionService.refreshUser();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    
     return FutureBuilder<UserModel?>(
-      future: SessionService.getUser(),
+      future: _loadUserWithFirebaseWait(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Scaffold(
-            body: Center(child: CircularProgressIndicator()),
+            body: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  CircularProgressIndicator(),
+                  SizedBox(height: 16),
+                  Text('Loading dashboard...'),
+                ],
+              ),
+            ),
           );
         }
         
         final user = snapshot.data;
-        print('AdminDashboardWrapper - User loaded: ${user?.displayName}, isAdmin: ${user?.isAdmin}');
+        print('AdminDashboardWrapper - User loaded: displayName="${user?.displayName}", email="${user?.emailAddress}", isAdmin: ${user?.isAdmin}');
         
         if (user != null && user.isAdmin) {
           // Save current route
@@ -284,10 +315,21 @@ class MultiplayerGameWrapper extends StatelessWidget {
           try {
             // Save current route
             SessionService.saveCurrentRoute('/multiplayer-game');
-            return MultiplayerGamePage(
-              user: data['user'] as UserModel,
-              gameSession: data['gameSession'] as GameSessionModel,
-            );
+            final user = data['user'] as UserModel;
+            final gameSession = data['gameSession'] as GameSessionModel;
+            
+            if (user.isAdmin) {
+              return TeacherPronunciationMonitor(
+                user: user,
+                gameSession: gameSession,
+              );
+            } else {
+              return CleanMultiplayerScreen(
+                user: user,
+                gameSession: gameSession,
+                isTeacherMode: false,
+              );
+            }
           } catch (e) {
             safePrint('Error casting session data: $e');
             // Clear corrupted session and redirect to landing
@@ -309,12 +351,6 @@ class MultiplayerGameWrapper extends StatelessWidget {
   }
   
   Future<Map<String, dynamic>?> _getSessionData() async {
-    // Check if Firebase is ready before attempting to load session data
-    if (!FirestoreService.isFirebaseReady) {
-      safePrint('MultiplayerGameWrapper - Firebase not ready, cannot load session');
-      return null;
-    }
-    
     final user = await SessionService.getUser();
     final gameSession = await SessionService.getGameSession();
     

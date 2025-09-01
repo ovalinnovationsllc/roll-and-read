@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../config/app_colors.dart';
-import '../services/firestore_service.dart';
+import '../services/local_user_service.dart';
 import '../services/session_service.dart';
 import '../models/user_model.dart';
 import 'admin_dashboard_page.dart';
@@ -16,12 +17,49 @@ class _AdminLoginPageState extends State<AdminLoginPage> {
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
   bool _isLoading = false;
+  bool _rememberEmail = true;
   String? _errorMessage;
+  static const String _savedEmailKey = 'roll_and_read_saved_teacher_email';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSavedEmail();
+  }
 
   @override
   void dispose() {
     _emailController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadSavedEmail() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final savedEmail = prefs.getString(_savedEmailKey);
+      if (savedEmail != null && savedEmail.isNotEmpty) {
+        _emailController.text = savedEmail;
+        setState(() {
+          _rememberEmail = true;
+        });
+      }
+    } catch (e) {
+      // Silently fail - not critical
+    }
+  }
+
+  Future<void> _saveEmailIfNeeded(String email) async {
+    try {
+      if (_rememberEmail) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString(_savedEmailKey, email);
+      } else {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.remove(_savedEmailKey);
+      }
+    } catch (e) {
+      // Silently fail - not critical
+    }
   }
 
   Future<void> _handleLogin() async {
@@ -35,8 +73,11 @@ class _AdminLoginPageState extends State<AdminLoginPage> {
     try {
       final email = _emailController.text.trim();
       
+      // Save email if remember is checked
+      await _saveEmailIfNeeded(email);
+      
       // Check if user exists and is admin
-      final user = await FirestoreService.getUserByEmail(email);
+      final user = await LocalUserService.getUserByEmail(email);
       
       if (user == null) {
         setState(() {
@@ -153,6 +194,37 @@ class _AdminLoginPageState extends State<AdminLoginPage> {
                           }
                           return null;
                         },
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          Checkbox(
+                            value: _rememberEmail,
+                            onChanged: _isLoading ? null : (value) {
+                              setState(() {
+                                _rememberEmail = value ?? false;
+                              });
+                            },
+                            activeColor: AppColors.adminPrimary,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: GestureDetector(
+                              onTap: _isLoading ? null : () {
+                                setState(() {
+                                  _rememberEmail = !_rememberEmail;
+                                });
+                              },
+                              child: Text(
+                                'Remember email for next time',
+                                style: TextStyle(
+                                  fontSize: isTablet ? 14 : 12,
+                                  color: AppColors.textSecondary,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                       if (_errorMessage != null) ...[
                         const SizedBox(height: 16),

@@ -175,9 +175,13 @@ class _GameJoinPageState extends State<GameJoinPage> {
 
       // Try to join the game with selected color
       try {
+        print('🎓 STUDENT JOIN: Starting join process for game ${gameId}');
+        print('🎓 STUDENT JOIN: User ${user.displayName}, Color ${_selectedColor?.value}');
+        
         // Update user with selected color
         final userWithColor = user.copyWith(playerColor: _selectedColor);
         
+        print('🎓 STUDENT JOIN: About to call GameSessionService.joinGameSession');
         final updatedGame = await GameSessionService.joinGameSession(
           gameId: gameId,
           user: userWithColor,
