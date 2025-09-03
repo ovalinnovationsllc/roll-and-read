@@ -2276,8 +2276,8 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
             ),
             child: Stack(
               children: [
-                // Player name at top center for owned cells
-                if (isCompleted && cellOwner != null) 
+                // Player name at top center for owned cells (only show in multiplayer games)
+                if (isCompleted && cellOwner != null && (_currentGameSession?.players.length ?? 0) > 1) 
                   Positioned(
                     top: 2,
                     left: 2,
