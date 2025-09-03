@@ -34,7 +34,6 @@ class AIWordService {
       return _parseWordGrid(response);
       
     } catch (e) {
-      print('Error generating words with AI: $e');
       
       // Fallback to default words if AI fails
       return _getFallbackGrid();
@@ -63,7 +62,6 @@ class AIWordService {
       return _parseWordList(response, 6); // Return 6 words for the column
       
     } catch (e) {
-      print('Error generating column words: $e');
       return _getFallbackColumn(column);
     }
   }

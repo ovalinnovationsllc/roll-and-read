@@ -44,6 +44,8 @@ class PronunciationLogEntry {
   final DateTime attemptTime;
   final DateTime resolvedTime;
   final bool approved; // true = approved, false = rejected
+  final String? previousOwnerId; // ID of player who owned the cell before (for steals)
+  final String? previousOwnerName; // Name of player who owned the cell before
   
   PronunciationLogEntry({
     required this.playerId,
@@ -53,6 +55,8 @@ class PronunciationLogEntry {
     required this.attemptTime,
     required this.resolvedTime,
     required this.approved,
+    this.previousOwnerId,
+    this.previousOwnerName,
   });
   
   Map<String, dynamic> toMap() {
@@ -64,6 +68,8 @@ class PronunciationLogEntry {
       'attemptTime': Timestamp.fromDate(attemptTime),
       'resolvedTime': Timestamp.fromDate(resolvedTime),
       'approved': approved,
+      'previousOwnerId': previousOwnerId,
+      'previousOwnerName': previousOwnerName,
     };
   }
   
@@ -76,6 +82,8 @@ class PronunciationLogEntry {
       attemptTime: (map['attemptTime'] as Timestamp).toDate(),
       resolvedTime: (map['resolvedTime'] as Timestamp).toDate(),
       approved: map['approved'] ?? false,
+      previousOwnerId: map['previousOwnerId'],
+      previousOwnerName: map['previousOwnerName'],
     );
   }
 }
@@ -226,7 +234,6 @@ class GameStateModel {
     
     if (currentOwner != null) {
       // STEALING: Square is owned by another player
-      print('🔥 STEAL: $playerId is stealing $cellKey from $currentOwner');
       
       // Remove cell from original owner's collection  
       updatedCells[currentOwner] = Set<String>.from(updatedCells[currentOwner]!)..remove(cellKey);
@@ -242,12 +249,10 @@ class GameStateModel {
       updatedScores[currentOwner] = (updatedScores[currentOwner] ?? 0) - 1;
       if (updatedScores[currentOwner]! < 0) updatedScores[currentOwner] = 0;
       
-      print('  Scores after steal: $playerId=${updatedScores[playerId]}, $currentOwner=${updatedScores[currentOwner]}');
     } else {
       // Square is free - player takes it normally
       updatedCells[playerId] = Set<String>.from(updatedCells[playerId]!)..add(cellKey);
       updatedScores[playerId] = (updatedScores[playerId] ?? 0) + 1;
-      print('✅ CLAIM: $playerId claimed free cell $cellKey, score=${updatedScores[playerId]}');
     }
     
     return copyWith(
@@ -478,7 +483,6 @@ class GameStateModel {
   
   bool _hasPlayerWon(String playerId) {
     final cells = playerCompletedCells[playerId] ?? {};
-    print('DEBUG: Checking win condition for $playerId with ${cells.length} cells: $cells');
     if (cells.length < 6) return false; // Need at least 6 cells to win
     
     // Convert cell keys to coordinates
@@ -494,11 +498,9 @@ class GameStateModel {
       }
     }
     
-    print('DEBUG: Parsed coordinates: $coordinates');
     
     // Check all possible lines of 6
     final hasWon = _checkLines(coordinates);
-    print('DEBUG: Player $playerId won: $hasWon');
     return hasWon;
   }
   
@@ -511,7 +513,6 @@ class GameStateModel {
           count++;
         }
       }
-      print('DEBUG: Row $row has $count cells');
       if (count >= 6) return true;
     }
     
@@ -523,7 +524,6 @@ class GameStateModel {
           count++;
         }
       }
-      print('DEBUG: Column $col has $count cells');
       if (count >= 6) return true;
     }
     

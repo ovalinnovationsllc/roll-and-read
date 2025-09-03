@@ -34,7 +34,6 @@ class _SimpleStudentSelectorState extends State<SimpleStudentSelector> {
       // Get all active students for simple tap-to-play
       return await FirestoreService.getAllActiveStudents();
     } catch (e) {
-      print('Error getting students: $e');
       return [];
     }
   }
@@ -130,7 +129,6 @@ class _SimpleStudentSelectorState extends State<SimpleStudentSelector> {
         );
       }
     } catch (e) {
-      print('Error starting game: $e');
       setState(() {
         _isLoading = false;
       });

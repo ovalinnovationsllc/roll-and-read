@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart';
 import 'dart:math';
+import 'dart:async';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import '../config/app_colors.dart';
 import '../models/user_model.dart';
 import '../models/student_model.dart';
+import '../models/player_colors.dart';
 import '../services/firestore_service.dart';
 import '../services/ai_word_service.dart';
 import '../services/word_list_service.dart';
@@ -16,11 +18,8 @@ import '../models/game_session_model.dart';
 import '../models/game_state_model.dart';
 import '../models/student_game_model.dart';
 import '../services/student_game_service.dart';
-import 'clean_multiplayer_screen.dart';
-import 'roll_and_read_game.dart';
-import 'simple_student_selector.dart';
-import 'teacher_pronunciation_monitor.dart';
-import '../widgets/animated_dice.dart';
+import 'teacher_pronunciation_monitor_new.dart';
+import 'teacher_game_screen.dart';
 
 class AdminDashboardPage extends StatefulWidget {
   final UserModel adminUser;
@@ -38,6 +37,7 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
   late TabController _tabController;
   Map<String, dynamic>? _statistics;
   bool _loadingStats = true;
+  List<GameSessionModel> _activeGames = [];
   
   // Default word grid with child-friendly 4-6 character words
   static const List<List<String>> defaultWordGrid = [
@@ -62,23 +62,20 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
   stt.SpeechToText? _speech;
   bool _speechEnabled = false;
   
-  // Students stream for tab
-  late Stream<List<StudentModel>> _studentsStream;
   bool _speechInitialized = false;
   bool get _isMobilePlatform => !kIsWeb && (defaultTargetPlatform == TargetPlatform.iOS || defaultTargetPlatform == TargetPlatform.android);
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
     _loadStatistics();
     _searchController.addListener(_onSearchChanged);
     _initializeSpeech();
     
-    // Initialize students stream as broadcast stream
-    _studentsStream = Stream.periodic(const Duration(seconds: 5), (_) async {
-      return await FirestoreService.getAllActiveStudents();
-    }).asyncMap((future) => future).asBroadcastStream();
+    // Run cleanup of old games in background
+    _performMaintenanceCleanup();
+    
   }
 
   @override
@@ -87,6 +84,17 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
     _searchController.removeListener(_onSearchChanged);
     _searchController.dispose();
     super.dispose();
+  }
+
+
+  /// Perform background maintenance cleanup
+  void _performMaintenanceCleanup() async {
+    try {
+      // Run cleanup in background without blocking UI
+      FirestoreService.performMaintenanceCleanup();
+    } catch (e) {
+      // Silently fail - don't show errors for maintenance tasks
+    }
   }
 
   void _onSearchChanged() {
@@ -132,7 +140,7 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
           comparison = a.gamesWon.compareTo(b.gamesWon);
           break;
         case 'words':
-          comparison = a.wordsCorrect.compareTo(b.wordsCorrect);
+          comparison = a.wordsRead.compareTo(b.wordsRead);
           break;
       }
       return _sortAscending ? comparison : -comparison;
@@ -417,7 +425,6 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
         });
       }
     } catch (e) {
-      print('Error loading statistics: $e');
       if (mounted) {
         setState(() {
           _statistics = {'totalStudents': 0, 'totalGames': 0, 'totalWordsRead': 0, 'activeStudents': 0};
@@ -435,10 +442,8 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
       // The speech_to_text plugin handles permissions internally
       _speechEnabled = await _speech!.initialize(
         onError: (error) {
-          print('Speech error: ${error.errorMsg}');
         },
         onStatus: (status) {
-          print('Speech status: $status');
         },
       );
       
@@ -448,7 +453,6 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
         });
       }
     } catch (e) {
-      print('Speech initialization error: $e');
       if (mounted) {
         setState(() {
           _speechEnabled = false;
@@ -494,7 +498,6 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
         listenMode: stt.ListenMode.confirmation,
       );
     } catch (e) {
-      print('Error starting voice recording: $e');
       onStop();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -544,7 +547,7 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 _buildDetailRow('Email', user.emailAddress),
-                _buildDetailRow('PIN', user.pin),
+                _buildDetailRow('PIN', user.pin ?? 'N/A'),
                 _buildDetailRow('Account Type', user.isAdmin ? 'Administrator' : 'Student'),
                 _buildDetailRow('Created', _formatDate(user.createdAt)),
                 const SizedBox(height: 16),
@@ -564,11 +567,11 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
                   const SizedBox(height: 12),
                   _buildDetailRow('Games Played', user.gamesPlayed.toString()),
                   _buildDetailRow('Games Won', user.gamesWon.toString()),
-                  _buildDetailRow('Words Read Correctly', user.wordsCorrect.toString()),
+                  _buildDetailRow('Words Read', user.wordsRead.toString()),
                   if (user.gamesPlayed > 0)
                     _buildDetailRow('Win Rate', '${((user.gamesWon / user.gamesPlayed) * 100).toStringAsFixed(1)}%'),
                   if (user.gamesPlayed > 0)
-                    _buildDetailRow('Average Words per Game', '${(user.wordsCorrect / user.gamesPlayed).toStringAsFixed(1)}'),
+                    _buildDetailRow('Average Words per Game', '${(user.wordsRead / user.gamesPlayed).toStringAsFixed(1)}'),
                 ],
               ],
             ),
@@ -735,23 +738,9 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
                               return;
                             }
                             
-                            // Create student
-                            final user = await FirestoreService.createStudent(
-                              teacherId: widget.adminUser.id,
-                              displayName: nameController.text.trim(),
-                              avatarUrl: '🙂', // Default avatar
-                              playerColor: Colors.blue, // Default color
-                            );
-                            
-                            if (mounted) {
-                              Navigator.pop(context);
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text('Student ${user?.displayName ?? 'Unknown'} created successfully'),
-                                  backgroundColor: AppColors.success,
-                                ),
-                              );
-                            }
+                            // Use the proper create student dialog instead of hardcoded values
+                            Navigator.pop(context);
+                            _showCreateStudentDialog();
                           } catch (e) {
                             if (mounted) {
                               setDialogState(() {
@@ -853,38 +842,9 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
                           return;
                         }
                         
-                        // Create student
-                        final user = await FirestoreService.createStudent(
-                          teacherId: widget.adminUser.id,
-                          displayName: nameController.text.trim(),
-                          avatarUrl: '🙂', // Default avatar
-                          playerColor: Colors.blue, // Default color
-                        );
-                        
-                        if (mounted) {
-                          Navigator.pop(context);
-                          if (user != null) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text('Student ${user.displayName} created successfully'),
-                                backgroundColor: Colors.green,
-                                duration: const Duration(seconds: 5),
-                              ),
-                            );
-                            // Refresh statistics
-                            setState(() {
-                              _loadingStats = true;
-                            });
-                            _loadStatistics();
-                          } else {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('Failed to create user'),
-                                backgroundColor: Colors.red,
-                              ),
-                            );
-                          }
-                        }
+                        // Use the proper create student dialog instead of hardcoded values
+                        Navigator.pop(context);
+                        _showCreateStudentDialog();
                       } catch (e) {
                         if (mounted) {
                           Navigator.pop(context);
@@ -1822,6 +1782,10 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
                       text: 'Active Games',
                     ),
                     Tab(
+                      icon: Icon(Icons.history),
+                      text: 'Completed Games',
+                    ),
+                    Tab(
                       icon: Icon(Icons.people_outline),
                       text: 'Students',
                     ),
@@ -1837,12 +1801,29 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
               controller: _tabController,
               children: [
                 _buildActiveGamesTab(isTablet),
+                _buildCompletedGamesTab(isTablet),
                 _buildStudentsTab(isTablet),
               ],
             ),
           ),
         ],
       ),
+      floatingActionButton: _activeGames.isNotEmpty ? FloatingActionButton.extended(
+        onPressed: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => TeacherPronunciationMonitorNew(
+                user: widget.adminUser,
+                gameSession: _activeGames.first,
+              ),
+            ),
+          );
+        },
+        icon: const Icon(Icons.monitor),
+        label: const Text('New Teacher Monitor'),
+        backgroundColor: Colors.blue,
+      ) : null,
     );
   }
 
@@ -1850,11 +1831,9 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
     return StreamBuilder<List<GameSessionModel>>(
       stream: GameSessionService.listenToGamesByAdmin(widget.adminUser.id),
       builder: (context, snapshot) {
-        print('📱 StreamBuilder: connectionState=${snapshot.connectionState}, hasError=${snapshot.hasError}, data=${snapshot.data?.length ?? 0} games');
         if (snapshot.data != null) {
-          for (final game in snapshot.data!) {
-            print('  📱 Game ${game.gameId}: ${game.players.length}/${game.maxPlayers} players, status=${game.status}');
-          }
+          // Update the active games list without setState to avoid rebuild loop
+          _activeGames = snapshot.data!.where((game) => game.status == 'active').toList();
         }
         
         if (snapshot.connectionState == ConnectionState.waiting) {
@@ -1907,7 +1886,6 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
         }
 
         final games = snapshot.data ?? [];
-        print('📱 StreamBuilder: Received ${games.length} games');
         
         if (games.isEmpty) {
           return Center(
@@ -1945,7 +1923,6 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
           );
         }
         
-        print('📱 StreamBuilder: Showing games section with ${games.length} active games');
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1964,13 +1941,6 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
                       color: Colors.grey.shade800,
                     ),
                   ),
-                  Text(
-                    'Tap cards to manage',
-                    style: TextStyle(
-                      fontSize: isTablet ? 14 : 12,
-                      color: Colors.grey.shade600,
-                    ),
-                  ),
                 ],
               ),
             ),
@@ -1984,7 +1954,9 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
                   final game = games[index];
                   return KeyedSubtree(
                     key: ValueKey('${game.gameId}_${game.players.length}'),
-                    child: _buildGameCard(game, isTablet),
+                    child: game.status == GameStatus.inProgress 
+                      ? _buildSimpleActiveGameCard(game, isTablet)
+                      : _buildGameCard(game, isTablet),
                   );
                 },
               ),
@@ -2029,9 +2001,10 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
         // Students List
         Expanded(
           child: StreamBuilder<List<StudentModel>>(
-            stream: _studentsStream,
+            key: ValueKey('students_${widget.adminUser.id}'),
+            stream: FirestoreService.listenToActiveStudents(teacherId: widget.adminUser.id),
             builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
+              if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
                 return const Center(
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -2174,7 +2147,6 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
         statusColor = AppColors.mediumBlue;
         statusText = 'Waiting (${game.players.length}/${game.maxPlayers})';
         statusIcon = Icons.hourglass_empty;
-        print('🎯 Building card for game ${game.gameId}: statusText="$statusText", players=${game.players.length}, maxPlayers=${game.maxPlayers}');
         break;
       case GameStatus.inProgress:
         statusColor = Colors.green;
@@ -2257,98 +2229,11 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
                       ),
                     ),
                     const SizedBox(width: 8),
-                    if (game.status == GameStatus.inProgress) ...[
-                      IconButton(
-                        onPressed: () => _completeGame(game),
-                        icon: const Icon(Icons.check_circle_outline),
-                        color: Colors.green.shade600,
-                        tooltip: 'Complete Game',
-                        constraints: const BoxConstraints(),
-                        padding: const EdgeInsets.all(4),
-                        iconSize: isTablet ? 20 : 18,
-                      ),
-                      IconButton(
-                        onPressed: () => _endGame(game),
-                        icon: const Icon(Icons.stop_circle),
-                        color: AppColors.primary,
-                        tooltip: 'End Game',
-                        constraints: const BoxConstraints(),
-                        padding: const EdgeInsets.all(4),
-                        iconSize: isTablet ? 20 : 18,
-                      ),
-                    ],
-                    IconButton(
-                      onPressed: () => _deleteGame(game),
-                      icon: const Icon(Icons.delete_outline),
-                      color: Colors.red.shade600,
-                      tooltip: 'Delete Game',
-                      constraints: const BoxConstraints(),
-                      padding: const EdgeInsets.all(4),
-                      iconSize: isTablet ? 20 : 18,
-                    ),
                   ],
                 ),
               ],
             ),
             
-            // Enhanced game info for in-progress games
-            if (game.status == GameStatus.inProgress) ...[
-              const SizedBox(height: 16),
-              // Game state info
-              StreamBuilder<GameStateModel?>(
-                stream: GameStateService.getGameStateStream(game.gameId),
-                builder: (context, snapshot) {
-                  final gameState = snapshot.data;
-                  return _buildGameStateInfo(game, gameState, isTablet);
-                },
-              ),
-              
-              // Automatic inline monitor view for in-progress games
-              if (game.status == GameStatus.inProgress) ...[
-                const SizedBox(height: 16),
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.blue.shade50,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.blue.shade200, width: 2),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Icon(Icons.monitor, color: Colors.blue.shade600, size: 20),
-                          const SizedBox(width: 8),
-                          Text(
-                            'Teacher Monitor - ${game.gameName}',
-                            style: TextStyle(
-                              fontSize: isTablet ? 16 : 14,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.blue.shade800,
-                            ),
-                          ),
-                          const Spacer(),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      // Embedded teacher monitor - constrained height to prevent overflow
-                      SizedBox(
-                        height: 500, // Fixed height to prevent RenderFlex overflow
-                        child: StreamBuilder<GameSessionModel?>(
-                          stream: GameSessionService.getGameSessionStream(game.gameId),
-                          initialData: game,
-                          builder: (context, snapshot) {
-                            final currentGame = snapshot.data ?? game;
-                            return _buildEmbeddedMonitor(currentGame);
-                          },
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ],
           ],
         ),
       ),
@@ -2588,12 +2473,193 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
     );
   }
 
+  Widget _buildSimpleActiveGameCard(GameSessionModel game, bool isTablet) {
+    return StreamBuilder<GameStateModel?>(
+      stream: GameStateService.getGameStateStream(game.gameId),
+      builder: (context, gameStateSnapshot) {
+        final gameState = gameStateSnapshot.data;
+        final createdAt = game.createdAt;
+        final duration = DateTime.now().difference(createdAt);
+        
+        // Determine status
+        String statusText;
+        Color statusColor;
+        IconData statusIcon;
+        
+        if (game.players.isEmpty) {
+          statusText = 'WAITING FOR PLAYERS';
+          statusColor = Colors.orange;
+          statusIcon = Icons.hourglass_empty;
+        } else if (gameState != null && gameState.pendingPronunciations.isNotEmpty) {
+          statusText = 'WAITING FOR TEACHER';
+          statusColor = Colors.orange;
+          statusIcon = Icons.pending;
+        } else {
+          statusText = 'IN PROGRESS';
+          statusColor = Colors.blue;
+          statusIcon = Icons.play_circle;
+        }
+        
+        return GestureDetector(
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => TeacherGameScreen(
+                  user: widget.adminUser,
+                  gameSession: game,
+                ),
+              ),
+            );
+          },
+          child: Card(
+            margin: const EdgeInsets.only(bottom: 16),
+            elevation: 2,
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Header with status and created time
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: statusColor.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              statusIcon,
+                              size: 16,
+                              color: statusColor,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              statusText,
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                color: statusColor,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Spacer(),
+                      Text(
+                        _formatActiveGameTime(createdAt),
+                        style: TextStyle(
+                          fontSize: isTablet ? 12 : 10,
+                          color: Colors.grey[600],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  
+                  // Game ID and duration
+                  Row(
+                    children: [
+                      Text(
+                        'Game ${game.gameId}',
+                        style: TextStyle(
+                          fontSize: isTablet ? 18 : 16,
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.textPrimary,
+                        ),
+                      ),
+                      const Spacer(),
+                      Text(
+                        'Duration: ${_formatDuration(duration)}',
+                        style: TextStyle(
+                          fontSize: isTablet ? 12 : 10,
+                          color: Colors.grey[600],
+                        ),
+                      ),
+                    ],
+                  ),
+                  
+                  const SizedBox(height: 12),
+                  
+                  // Players summary
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.people_outline,
+                        size: 16,
+                        color: AppColors.textSecondary,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        '${game.players.length} player${game.players.length != 1 ? 's' : ''}:',
+                        style: TextStyle(
+                          fontSize: isTablet ? 12 : 10,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: game.players.isNotEmpty 
+                          ? Text(
+                              game.players.map((p) => p.displayName).join(', '),
+                              style: TextStyle(
+                                fontSize: isTablet ? 12 : 10,
+                                color: AppColors.textPrimary,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            )
+                          : Text(
+                              'No players yet',
+                              style: TextStyle(
+                                fontSize: isTablet ? 12 : 10,
+                                color: Colors.grey[500],
+                                fontStyle: FontStyle.italic,
+                              ),
+                            ),
+                      ),
+                    ],
+                  ),
+                  
+                  // Tap hint
+                  const SizedBox(height: 8),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      Icon(
+                        Icons.touch_app,
+                        size: 14,
+                        color: Colors.grey[400],
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        'Tap to join as teacher',
+                        style: TextStyle(
+                          fontSize: isTablet ? 10 : 9,
+                          color: Colors.grey[400],
+                          fontStyle: FontStyle.italic,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   Future<void> _completeGame(GameSessionModel game) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Complete Game'),
-        content: Text('Mark "${game.gameName}" as completed? This will end the game and show final scores to players.'),
+        content: Text('Mark "${game.gameName}" as completed? This will:\n• End the game\n• Save player statistics\n• Show final scores to all players'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -2613,25 +2679,19 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
 
     if (confirmed == true) {
       try {
-        print('🎯 Starting game completion for ${game.gameId}');
         
         // Get current game state to determine winner
         final gameState = await GameStateService.getGameState(game.gameId);
         final winnerId = gameState?.checkForWinner();
-        print('🏆 Winner determined: $winnerId');
         
         // End the game session with winner info
-        print('📝 Calling endGameSession...');
         final updatedGame = await GameSessionService.endGameSession(
           gameId: game.gameId,
           winnerId: winnerId,
         );
-        print('✅ Game session ended successfully. Status: ${updatedGame?.status}');
         
         // Clean up game state
-        print('🧹 Cleaning up game state...');
         await GameStateService.deleteGameState(game.gameId);
-        print('✅ Game state cleaned up');
         
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -2640,10 +2700,7 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
           ),
         );
       } catch (e) {
-        print('❌ Error completing game: $e'); 
-        print('❌ Error type: ${e.runtimeType}');
         if (e is Exception) {
-          print('❌ Exception details: $e');
         }
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -2764,30 +2821,29 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
                               ),
                               const SizedBox(height: 8),
                               Row(
+                                mainAxisAlignment: MainAxisAlignment.end,
                                 children: [
-                                  Expanded(
-                                    child: ElevatedButton.icon(
-                                      onPressed: () => _rejectPronunciation(gameSession, cellKey),
-                                      icon: const Icon(Icons.close, size: 16),
-                                      label: const Text('Reject'),
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: AppColors.error,
-                                        foregroundColor: Colors.white,
-                                        padding: const EdgeInsets.symmetric(vertical: 8),
-                                      ),
+                                  ElevatedButton.icon(
+                                    onPressed: () => _approvePronunciation(gameSession, cellKey),
+                                    icon: const Icon(Icons.check, size: 14),
+                                    label: const Text('Approve'),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: AppColors.success,
+                                      foregroundColor: Colors.white,
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                                      minimumSize: Size(80, 32),
                                     ),
                                   ),
                                   const SizedBox(width: 8),
-                                  Expanded(
-                                    child: ElevatedButton.icon(
-                                      onPressed: () => _approvePronunciation(gameSession, cellKey),
-                                      icon: const Icon(Icons.check, size: 16),
-                                      label: const Text('Approve'),
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: AppColors.success,
-                                        foregroundColor: Colors.white,
-                                        padding: const EdgeInsets.symmetric(vertical: 8),
-                                      ),
+                                  ElevatedButton.icon(
+                                    onPressed: () => _rejectPronunciation(gameSession, cellKey),
+                                    icon: const Icon(Icons.close, size: 14),
+                                    label: const Text('Reject'),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: AppColors.error,
+                                      foregroundColor: Colors.white,
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                                      minimumSize: Size(80, 32),
                                     ),
                                   ),
                                 ],
@@ -2800,128 +2856,43 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
                   ),
                 ),
               
-              // Game Log
-              Expanded(
-                child: Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    border: Border(top: BorderSide(color: Colors.grey.shade300)),
-                    color: Colors.grey.shade50,
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Game Log',
-                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                      ),
-                      const SizedBox(height: 8),
-                      if (gameState?.pronunciationLog.isNotEmpty == true)
-                        Expanded(
-                          child: ListView.builder(
-                            itemCount: gameState!.pronunciationLog.length,
-                            itemBuilder: (context, index) {
-                              final logEntry = gameState.pronunciationLog[gameState.pronunciationLog.length - 1 - index]; // Show newest first
-                              final player = gameSession.players.firstWhere(
-                                (p) => p.userId == logEntry.playerId,
-                                orElse: () => PlayerInGame(
-                                  userId: logEntry.playerId,
-                                  displayName: logEntry.playerName,
-                                  emailAddress: '',
-                                  joinedAt: DateTime.now(),
-                                  wordsRead: 0,
-                                  avatarUrl: null,
-                                  playerColor: null,
-                                  isReady: false,
-                                ),
-                              );
-                              
-                              return Container(
-                                margin: const EdgeInsets.only(bottom: 4),
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                decoration: BoxDecoration(
-                                  color: logEntry.approved ? Colors.green.shade50 : Colors.red.shade50,
-                                  borderRadius: BorderRadius.circular(4),
-                                  border: Border.all(
-                                    color: logEntry.approved ? Colors.green.shade200 : Colors.red.shade200,
-                                  ),
-                                ),
-                                child: Row(
-                                  children: [
-                                    Icon(
-                                      logEntry.approved ? Icons.check_circle : Icons.cancel,
-                                      size: 16,
-                                      color: logEntry.approved ? Colors.green.shade700 : Colors.red.shade700,
-                                    ),
-                                    const SizedBox(width: 6),
-                                    Expanded(
-                                      child: Text(
-                                        '${player.displayName}: "${logEntry.word}"',
-                                        style: const TextStyle(fontSize: 12),
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    ),
-                                    Text(
-                                      _formatLogTime(logEntry.resolvedTime),
-                                      style: TextStyle(
-                                        fontSize: 10,
-                                        color: Colors.grey.shade600,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              );
-                            },
-                          ),
-                        )
-                      else
-                        const Expanded(
-                          child: Center(
-                            child: Text(
-                              'No pronunciation attempts yet\nGame log will appear here',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(fontSize: 14, color: Colors.grey),
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-              ),
-              
-              // Action buttons
+              // Action buttons - reorganized layout
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
                   border: Border(top: BorderSide(color: Colors.grey.shade300)),
                 ),
                 child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Expanded(
-                      child: ElevatedButton(
-                        onPressed: () => _endGame(gameSession),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.error,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 8),
+                    // Left side: Complete Game + Delete Game
+                    Row(
+                      children: [
+                        ElevatedButton(
+                          onPressed: () => _completeGame(gameSession),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.success,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            minimumSize: Size(90, 32),
+                          ),
+                          child: const Text(
+                            'Complete Game',
+                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                          ),
                         ),
-                        child: const Text('End Early', style: TextStyle(fontSize: 12)),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: ElevatedButton(
-                        onPressed: () => _completeGame(gameSession),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.success,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 8),
+                        const SizedBox(width: 8),
+                        ElevatedButton(
+                          onPressed: () => _deleteGame(gameSession),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.red.shade600,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            minimumSize: Size(90, 32),
+                          ),
+                          child: const Text('Delete Game', style: TextStyle(fontSize: 12)),
                         ),
-                        child: const Text(
-                          'Complete Game',
-                          style: TextStyle(fontSize: 12),
-                        ),
-                      ),
+                      ],
                     ),
                   ],
                 ),
@@ -3010,20 +2981,35 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
           children: [
             Text('Are you sure you want to delete "${game.gameName}"?'),
             const SizedBox(height: 8),
-            Text(
-              'Game ID: ${game.gameId}',
-              style: TextStyle(
-                fontFamily: 'monospace',
-                color: Colors.grey.shade600,
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: AppColors.warning.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: AppColors.warning),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.warning, color: AppColors.warning, size: 20),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'No statistics will be saved!',
+                      style: TextStyle(
+                        color: AppColors.warning,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
+            const SizedBox(height: 8),
             if (game.players.isNotEmpty) ...[
-              const SizedBox(height: 8),
               Text(
                 'This will remove ${game.players.length} player(s) from the game.',
                 style: TextStyle(
-                  color: AppColors.warning,
-                  fontWeight: FontWeight.w500,
+                  color: Colors.grey.shade700,
                 ),
               ),
             ],
@@ -3073,10 +3059,26 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
   }
 
   // Student Management Methods
-  void _showCreateStudentDialog() {
+  void _showCreateStudentDialog() async {
     final nameController = TextEditingController();
-    String selectedAvatar = StudentAvatars.animalEmojis[0];
-    Color selectedColor = StudentAvatars.colors[0];
+    
+    // Load available (unused) colors and avatars
+    final availableColors = await FirestoreService.getAvailableColors(widget.adminUser.id);
+    final availableAvatars = await FirestoreService.getAvailableAvatars(widget.adminUser.id);
+    
+    // Check if any colors or avatars are available
+    if (availableColors.isEmpty || availableAvatars.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Maximum of ${PlayerColors.maxStudentsPerTeacher} students reached. Delete some students first.'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+      return;
+    }
+    
+    String selectedAvatar = availableAvatars[0];
+    Color selectedColor = availableColors[0];
     final formKey = GlobalKey<FormState>();
 
     showDialog(
@@ -3121,9 +3123,9 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
                     height: 60,
                     child: ListView.builder(
                       scrollDirection: Axis.horizontal,
-                      itemCount: StudentAvatars.animalEmojis.length,
+                      itemCount: availableAvatars.length,
                       itemBuilder: (context, index) {
-                        final emoji = StudentAvatars.animalEmojis[index];
+                        final emoji = availableAvatars[index];
                         final isSelected = selectedAvatar == emoji;
                         return GestureDetector(
                           onTap: () => setDialogState(() => selectedAvatar = emoji),
@@ -3159,7 +3161,7 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
                   Wrap(
                     spacing: 8,
                     runSpacing: 8,
-                    children: StudentAvatars.colors.map((color) {
+                    children: availableColors.map((color) {
                       final isSelected = selectedColor == color;
                       return GestureDetector(
                         onTap: () => setDialogState(() => selectedColor = color),
@@ -3533,6 +3535,8 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
   }
 
 
+
+
   void _showFirebaseStatus() {
     final isReady = FirestoreService.isFirebaseReady;
     showDialog(
@@ -3596,6 +3600,273 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
       ),
     );
   }
+
+  Widget _buildCompletedGamesTab(bool isTablet) {
+    return FutureBuilder<List<GameSessionModel>>(
+      future: FirestoreService.getCompletedGames(teacherId: widget.adminUser.id),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        if (snapshot.hasError) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.error_outline,
+                  size: isTablet ? 64 : 48,
+                  color: Colors.grey,
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Error loading completed games',
+                  style: TextStyle(
+                    fontSize: isTablet ? 18 : 16,
+                    color: Colors.grey[600],
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
+
+        final completedGames = snapshot.data ?? [];
+        
+        if (completedGames.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.history_outlined,
+                  size: isTablet ? 64 : 48,
+                  color: Colors.grey,
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'No completed games in the past 5 days',
+                  style: TextStyle(
+                    fontSize: isTablet ? 18 : 16,
+                    color: Colors.grey[600],
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Complete games will appear here',
+                  style: TextStyle(
+                    fontSize: isTablet ? 14 : 12,
+                    color: Colors.grey[500],
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
+
+
+        return RefreshIndicator(
+          onRefresh: () async {
+            setState(() {});
+          },
+          child: ListView.builder(
+            padding: const EdgeInsets.all(16),
+            itemCount: completedGames.length,
+            itemBuilder: (context, index) {
+              final game = completedGames[index];
+              return _buildCompletedGameCard(game, isTablet);
+            },
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildCompletedGameCard(GameSessionModel game, bool isTablet) {
+    final completedAt = game.endedAt ?? game.createdAt;
+    final duration = completedAt.difference(game.createdAt);
+    final winner = game.winnerId != null && game.players.isNotEmpty
+        ? game.players.firstWhere((p) => p.userId == game.winnerId, 
+            orElse: () => game.players.first)
+        : null;
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 16),
+      elevation: 2,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Header with game name and completion time
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: AppColors.success.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.check_circle,
+                        size: 16,
+                        color: AppColors.success,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        'COMPLETED',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.success,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const Spacer(),
+                Text(
+                  _formatCompletedDate(completedAt),
+                  style: TextStyle(
+                    fontSize: isTablet ? 12 : 10,
+                    color: Colors.grey[600],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            
+            // Game ID and duration
+            Row(
+              children: [
+                Text(
+                  'Game ${game.gameId}',
+                  style: TextStyle(
+                    fontSize: isTablet ? 18 : 16,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+                const Spacer(),
+                Text(
+                  'Duration: ${_formatDuration(duration)}',
+                  style: TextStyle(
+                    fontSize: isTablet ? 12 : 10,
+                    color: Colors.grey[600],
+                  ),
+                ),
+              ],
+            ),
+            
+            if (winner != null) ...[
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Icon(
+                    Icons.emoji_events,
+                    size: 16,
+                    color: Colors.amber[600],
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    'Winner: ${winner.displayName}',
+                    style: TextStyle(
+                      fontSize: isTablet ? 14 : 12,
+                      fontWeight: FontWeight.w500,
+                      color: Colors.amber[700],
+                    ),
+                  ),
+                ],
+              ),
+            ],
+            
+            const SizedBox(height: 12),
+            
+            // Players summary
+            Row(
+              children: [
+                Icon(
+                  Icons.people_outline,
+                  size: 16,
+                  color: AppColors.textSecondary,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  '${game.players.length} player${game.players.length != 1 ? 's' : ''}:',
+                  style: TextStyle(
+                    fontSize: isTablet ? 12 : 10,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    game.players.map((p) => p.displayName).join(', '),
+                    style: TextStyle(
+                      fontSize: isTablet ? 12 : 10,
+                      color: AppColors.textPrimary,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _formatActiveGameTime(DateTime date) {
+    final now = DateTime.now();
+    final difference = now.difference(date);
+    
+    if (difference.inDays == 0) {
+      return 'Started ${_formatTime(date)}';
+    } else if (difference.inDays == 1) {
+      return 'Started Yesterday';
+    } else if (difference.inDays < 7) {
+      return 'Started ${difference.inDays} days ago';
+    } else {
+      return 'Started ${date.month}/${date.day}/${date.year}';
+    }
+  }
+
+  String _formatCompletedDate(DateTime date) {
+    final now = DateTime.now();
+    final difference = now.difference(date);
+    
+    if (difference.inDays == 0) {
+      return 'Today ${_formatTime(date)}';
+    } else if (difference.inDays == 1) {
+      return 'Yesterday ${_formatTime(date)}';
+    } else if (difference.inDays < 7) {
+      return '${difference.inDays} days ago';
+    } else {
+      return '${date.month}/${date.day}/${date.year}';
+    }
+  }
+  
+  String _formatTime(DateTime date) {
+    final hour = date.hour > 12 ? date.hour - 12 : (date.hour == 0 ? 12 : date.hour);
+    final minute = date.minute.toString().padLeft(2, '0');
+    final amPm = date.hour >= 12 ? 'PM' : 'AM';
+    return '$hour:$minute $amPm';
+  }
+  
+  String _formatDuration(Duration duration) {
+    if (duration.inHours > 0) {
+      return '${duration.inHours}h ${duration.inMinutes % 60}m';
+    } else if (duration.inMinutes > 0) {
+      return '${duration.inMinutes}m';
+    } else {
+      return '${duration.inSeconds}s';
+    }
+  }
   
   // Helper method to format log entry timestamps
   String _formatLogTime(DateTime timestamp) {
@@ -3612,6 +3883,7 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
       return '${difference.inDays}d ago';
     }
   }
+
 }
 
 // Student avatar constants

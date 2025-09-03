@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../config/app_colors.dart';
 import '../services/firestore_service.dart';
 import '../services/session_service.dart';
+import '../utils/firebase_utils.dart';
 import '../models/user_model.dart';
 import 'roll_and_read_game.dart';
 
@@ -26,6 +27,7 @@ class _UserLoginPageState extends State<UserLoginPage> {
     super.dispose();
   }
 
+
   Future<void> _handleLogin() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -38,12 +40,12 @@ class _UserLoginPageState extends State<UserLoginPage> {
       final email = _emailController.text.trim();
       final pin = _pinController.text.trim();
       
-      print('🔍 Login attempt: email="$email", pin="$pin"');
+      // Wait for Firebase to be ready before attempting login
+      await FirebaseUtils.waitForFirebaseReady();
       
       // Get user from Firestore
       final user = await FirestoreService.getUserByEmail(email);
       
-      print('🔍 User lookup result: ${user?.displayName ?? "null"}');
       
       if (user == null) {
         setState(() {
@@ -72,7 +74,11 @@ class _UserLoginPageState extends State<UserLoginPage> {
       }
     } catch (e) {
       setState(() {
-        _errorMessage = 'An error occurred. Please try again.';
+        if (e.toString().contains('Firebase initialization timeout')) {
+          _errorMessage = 'Connection timeout. Please check your internet connection and try again.';
+        } else {
+          _errorMessage = 'An error occurred. Please try again.';
+        }
         _isLoading = false;
       });
     }
@@ -125,7 +131,7 @@ class _UserLoginPageState extends State<UserLoginPage> {
                     onTap: () {
                       Navigator.pop(context);
                       _emailController.text = user.emailAddress;
-                      _pinController.text = user.pin;
+                      _pinController.text = user.pin ?? '';
                     },
                   );
                 },

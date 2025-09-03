@@ -1,7 +1,10 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/material.dart';
 import '../models/game_session_model.dart';
 import '../models/user_model.dart';
 import '../models/word_list_model.dart';
+import '../models/player_colors.dart';
+import '../utils/safe_print.dart';
 import 'ai_word_service.dart';
 import 'firestore_service.dart';
 import 'game_state_service.dart';
@@ -53,19 +56,16 @@ class GameSessionService {
       gameId = generateGameId();
     } while (await FirestoreService.getGameSession(gameId) != null);
     
-    print('🎮 DEBUG: Generated unique game ID/code: $gameId');
 
     List<List<String>>? finalWordGrid = wordGrid;
     
     // Generate AI words if requested
     if (useAIWords && aiPrompt != null) {
       try {
-        print('🤖 Generating AI words with prompt: "$aiPrompt" (difficulty: ${difficulty ?? 'elementary'})');
         finalWordGrid = await AIWordService.generateWordGrid(
           prompt: aiPrompt,
           difficulty: difficulty ?? 'elementary',
         );
-        print('✅ AI word generation completed successfully');
         
         // Save the AI-generated word list to local storage for reuse
         if (finalWordGrid != null) {
@@ -77,7 +77,6 @@ class GameSessionService {
           );
         }
       } catch (e) {
-        print('AI word generation failed, using fallback: $e');
         // Continue without AI words - will use default grid
       }
     }
@@ -94,7 +93,6 @@ class GameSessionService {
     );
 
     final createdGame = await FirestoreService.createGameSession(gameSession);
-    print('✅ Game session created successfully: ${gameSession.gameId} (${gameSession.gameName})');
     return createdGame;
   }
 
@@ -103,7 +101,6 @@ class GameSessionService {
     try {
       return await FirestoreService.getAllGameSessions();
     } catch (e) {
-      print('Error getting all game sessions: $e');
       return [];
     }
   }
@@ -113,7 +110,6 @@ class GameSessionService {
     try {
       return await FirestoreService.getGameSession(gameId.toUpperCase());
     } catch (e) {
-      print('Error getting game session: $e');
       return null;
     }
   }
@@ -124,31 +120,22 @@ class GameSessionService {
     required UserModel user,
   }) async {
     try {
-      print('🚀 ENTRY: joinGameSession called with gameId: $gameId, user: ${user.displayName}');
-      print('🔍 JOIN ATTEMPT: User ${user.displayName} trying to join game $gameId');
       final gameSession = await FirestoreService.getGameSession(gameId.toUpperCase());
       
       if (gameSession == null) {
-        print('❌ JOIN FAILED: Game $gameId not found');
         throw Exception('Game not found');
       }
       
-      print('✅ JOIN CHECK: Found game $gameId with ${gameSession.players.length}/${gameSession.maxPlayers} players');
-      print('✅ JOIN CHECK: Game status: ${gameSession.status}');
-      print('✅ JOIN CHECK: Current players: ${gameSession.players.map((p) => p.displayName).toList()}');
 
       if (gameSession.isFull) {
-        print('❌ JOIN FAILED: Game is full (${gameSession.players.length}/${gameSession.maxPlayers})');
         throw Exception('Game is full');
       }
 
       if (gameSession.playerIds.contains(user.id)) {
-        print('❌ JOIN FAILED: User ${user.displayName} already in game');
         throw Exception('You are already in this game');
       }
 
       if (gameSession.status != GameStatus.waitingForPlayers) {
-        print('❌ JOIN FAILED: Game status is ${gameSession.status}, not accepting players');
         
         // Provide clearer error messages based on game status
         if (gameSession.status == GameStatus.inProgress) {
@@ -162,41 +149,57 @@ class GameSessionService {
         }
       }
       
-      print('✅ JOIN VALIDATION: All checks passed, proceeding to add player');
 
-      // Check for duplicate colors
-      if (user.playerColor != null) {
-        final existingColors = gameSession.players
-            .where((p) => p.playerColor != null)
-            .map((p) => p.playerColor)
-            .toList();
-        if (existingColors.contains(user.playerColor!.value)) {
-          throw Exception('This color is already taken. Please choose a different color.');
-        }
+      // Assign player position based on join order  
+      final playerPosition = gameSession.players.length;
+      
+      // Use the student's existing color instead of overriding it
+      Color? finalPlayerColor = user.playerColor;
+      String? uniqueAvatarUrl = user.avatarUrl;
+      
+      // If the user doesn't have a color, assign one based on position
+      if (finalPlayerColor == null && playerPosition < PlayerColors.availableColors.length) {
+        finalPlayerColor = PlayerColors.availableColors[playerPosition].color;
+        safePrint('✅ Assigned player ${user.displayName} color: ${PlayerColors.availableColors[playerPosition].name}');
+      } else if (finalPlayerColor == null) {
+        // Fallback to default if somehow we exceed available colors
+        finalPlayerColor = PlayerColors.getDefaultColor();
+        safePrint('⚠️ Too many players, using default color');
+      } else {
+        safePrint('✅ Keeping player ${user.displayName} existing color');
       }
-
-      // Debug color information
-      print('DEBUG: Adding player ${user.displayName} to game:');
-      print('  user.playerColor: ${user.playerColor}');
-      print('  user.playerColor?.value: ${user.playerColor?.value}');
+      
+      // If no avatar, assign one based on position
+      if (uniqueAvatarUrl == null) {
+        final avatarIndex = playerPosition % 6; // Cycle through 6 unique avatars
+        final avatarEmojis = ['🐱', '🐶', '⭐', '💖', '🦋', '☀️'];
+        uniqueAvatarUrl = avatarEmojis[avatarIndex];
+        safePrint('✅ Assigned player ${user.displayName} unique avatar: $uniqueAvatarUrl');
+      }
       
       final player = PlayerInGame(
         userId: user.id,
         displayName: user.displayName,
         emailAddress: user.emailAddress,
         joinedAt: DateTime.now(),
-        playerColor: user.playerColor?.value,
-        avatarUrl: user.avatarUrl,
+        playerColor: finalPlayerColor?.value,
+        avatarUrl: uniqueAvatarUrl, // Use unique position-based avatar
       );
       
-      print('  Created PlayerInGame.playerColor: ${player.playerColor}');
+      safePrint('✅ Added player: ${user.displayName}');
+      
 
       final updatedGame = gameSession.addPlayer(player);
-      print('👤 Player ${player.displayName} joining game ${gameSession.gameId}');
-      print('👤 Game now has ${updatedGame.players.length}/${updatedGame.maxPlayers} players');
       
-      // Check if game is now full and should auto-start
-      final shouldAutoStart = updatedGame.players.length >= updatedGame.maxPlayers;
+      // If color was changed, update the user's session with the new color
+      if (finalPlayerColor != user.playerColor) {
+        final userWithUpdatedColor = user.copyWith(playerColor: finalPlayerColor);
+        // Note: The calling code should save this updated user to session
+        // We can't import SessionService here to avoid circular dependencies
+      }
+      
+      // Check if game is now full and should auto-start (need at least 2 players)
+      final shouldAutoStart = updatedGame.isFull && updatedGame.canStart;
       final finalGame = shouldAutoStart ? updatedGame.startGame() : updatedGame;
       
       // Save the updated game
@@ -205,18 +208,15 @@ class GameSessionService {
       // Handle auto-start logic
       if (shouldAutoStart && gameSession.status == GameStatus.waitingForPlayers) {
         try {
-          print('DEBUG: Auto-starting game ${finalGame.gameId} - initializing game state for ${finalGame.playerIds.length} players');
           // Initialize game state for the auto-started game
           await GameStateService.initializeGameState(finalGame.gameId, finalGame.playerIds);
         } catch (e) {
-          print('Error initializing game state: $e');
           // Don't fail the join operation if this fails
         }
       }
       
       return finalGame;
     } catch (e) {
-      print('Error joining game: $e');
       rethrow;
     }
   }
@@ -243,17 +243,14 @@ class GameSessionService {
       
       // Handle game state initialization
       try {
-        print('DEBUG: Manually starting game ${updatedGame.gameId}');
         // Initialize game state when manually starting game
         await GameStateService.initializeGameState(updatedGame.gameId, updatedGame.playerIds);
       } catch (e) {
-        print('Error initializing game state: $e');
         // Don't fail the start operation if this fails
       }
       
       return updatedGame;
     } catch (e) {
-      print('Error starting game: $e');
       rethrow;
     }
   }
@@ -275,14 +272,12 @@ class GameSessionService {
       
       // Update student statistics for each player
       if (gameState != null && gameSession.players.isNotEmpty) {
-        print('📊 Updating stats for ${gameSession.players.length} players');
         
         for (final player in gameSession.players) {
           final playerId = player.userId;
           final playerScore = gameState.getPlayerScore(playerId);
           final isWinner = (winnerId != null && winnerId == playerId);
           
-          print('📊 Player ${player.displayName}: $playerScore words, winner: $isWinner');
           
           // Update student stats
           await FirestoreService.updateStudentStats(
@@ -298,7 +293,6 @@ class GameSessionService {
       
       return updatedGame;
     } catch (e) {
-      print('Error ending game: $e');
       rethrow;
     }
   }
@@ -308,7 +302,6 @@ class GameSessionService {
     try {
       return await FirestoreService.getAllGameSessions(teacherId: teacherId);
     } catch (e) {
-      print('Error getting teacher game sessions: $e');
       return [];
     }
   }
@@ -319,7 +312,6 @@ class GameSessionService {
       // Use optimized server-side filtering
       return await FirestoreService.getActiveGameSessions();
     } catch (e) {
-      print('Error getting active game sessions: $e');
       return [];
     }
   }
@@ -329,7 +321,6 @@ class GameSessionService {
     try {
       await FirestoreService.deleteGameSession(gameId.toUpperCase());
     } catch (e) {
-      print('Error deleting game session: $e');
       rethrow;
     }
   }
@@ -353,7 +344,6 @@ class GameSessionService {
       
       return null;
     } catch (e) {
-      print('Error finding game by partial ID: $e');
       return null;
     }
   }
@@ -363,7 +353,6 @@ class GameSessionService {
     try {
       await FirestoreService.updateGameSession(gameSession);
     } catch (e) {
-      print('Error updating game session: $e');
       rethrow;
     }
   }
@@ -371,17 +360,14 @@ class GameSessionService {
   // Test method to check basic local storage connectivity
   static Future<bool> testStorageConnection() async {
     try {
-      print('🔧 Testing local storage connection...');
       return true; // Firebase connection assumed working if initialized
     } catch (e) {
-      print('🔧 Local storage connection failed: $e');
       return false;
     }
   }
 
   // Stream methods for local storage (optimized with caching)
   static Stream<List<GameSessionModel>> listenToGamesByAdmin(String adminId) {
-    print('🎮 Setting up games listener for admin: $adminId');
     
     // For now, let's use a simpler approach - get all games for teacher and filter client-side
     // This avoids potential Firestore compound query issues  
@@ -390,12 +376,10 @@ class GameSessionService {
         .limit(20) // Increased limit to see more games
         .snapshots()
         .map((snapshot) {
-      print('🎮 Stream update: Firebase returned ${snapshot.docs.length} documents for teacher $adminId');
       
       final allGames = snapshot.docs.map((doc) {
         final data = doc.data() as Map<String, dynamic>;
         final game = GameSessionModel.fromMap(data);
-        print('  📊 Game ${game.gameId}: ${game.players.length}/${game.maxPlayers} players');
         return game;
       }).toList();
       
@@ -408,7 +392,6 @@ class GameSessionService {
       // Client-side sorting by creation time (newest first) since we removed orderBy to avoid index requirement
       activeGames.sort((a, b) => b.createdAt.compareTo(a.createdAt));
       
-      print('🎮 Found ${allGames.length} total games, ${activeGames.length} active games for teacher $adminId');
       
       return activeGames;
     });
@@ -428,7 +411,6 @@ class GameSessionService {
     try {
       return await getActiveGameSessions();
     } catch (e) {
-      print('Error getting available games: $e');
       return [];
     }
   }
@@ -457,7 +439,6 @@ class GameSessionService {
       await FirestoreService.updateGameSession(updatedGame);
       return updatedGame;
     } catch (e) {
-      print('Error leaving game: $e');
       rethrow;
     }
   }
@@ -477,9 +458,7 @@ class GameSessionService {
       );
       
       await WordListService.saveWordList(wordList);
-      print('✅ AI-generated word list saved to local storage: "$prompt"');
     } catch (e) {
-      print('❌ Failed to save AI word list to local storage: $e');
       // Don't rethrow - this is not critical for game creation
     }
   }

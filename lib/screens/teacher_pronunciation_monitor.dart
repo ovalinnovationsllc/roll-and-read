@@ -36,16 +36,11 @@ class _TeacherPronunciationMonitorState extends State<TeacherPronunciationMonito
   void _listenToGameChanges() {
     GameStateService.getGameStateStream(widget.gameSession.gameId).listen((gameState) {
       if (mounted && gameState != null) {
-        print('DEBUG: TeacherPronunciationMonitor - game state update:');
-        print('  gameId: ${widget.gameSession.gameId}');
-        print('  pendingPronunciations: ${gameState.pendingPronunciations.keys.toList()}');
-        print('  pendingCount: ${gameState.pendingPronunciations.length}');
         
         // Debug player scores for live updates
         if (_currentGameSession != null) {
           for (final player in _currentGameSession!.players) {
             final score = gameState.getPlayerScore(player.userId);
-            print('  ${player.displayName} score: $score');
           }
         }
         
@@ -74,9 +69,7 @@ class _TeacherPronunciationMonitorState extends State<TeacherPronunciationMonito
         cellKey: cellKey,
         playerIds: playerIds,
       );
-      print('✅ Approved pronunciation for cell: $cellKey');
     } catch (e) {
-      print('❌ Error approving pronunciation: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error approving pronunciation: $e')),
@@ -95,9 +88,7 @@ class _TeacherPronunciationMonitorState extends State<TeacherPronunciationMonito
         cellKey: cellKey,
         playerIds: playerIds,
       );
-      print('❌ Rejected pronunciation for cell: $cellKey');
     } catch (e) {
-      print('❌ Error rejecting pronunciation: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error rejecting pronunciation: $e')),
@@ -267,9 +258,7 @@ class _TeacherPronunciationMonitorState extends State<TeacherPronunciationMonito
         );
       }
       
-      print('✅ All player stats updated successfully');
     } catch (e) {
-      print('❌ Error updating player stats: $e');
       rethrow;
     }
   }
@@ -289,9 +278,7 @@ class _TeacherPronunciationMonitorState extends State<TeacherPronunciationMonito
         );
       }
       
-      print('✅ All player stats updated (game completed without winner)');
     } catch (e) {
-      print('❌ Error updating player stats without winner: $e');
       rethrow;
     }
   }
@@ -323,6 +310,110 @@ class _TeacherPronunciationMonitorState extends State<TeacherPronunciationMonito
       return '${difference.inHours}h ago';
     } else {
       return '${difference.inDays}d ago';
+    }
+  }
+
+  List<TextSpan> _buildLogNarrative(PronunciationLogEntry logEntry) {
+    final isStealAttempt = logEntry.previousOwnerId != null;
+    
+    print('DEBUG: Log entry - player: ${logEntry.playerName}, word: ${logEntry.word}, approved: ${logEntry.approved}, isSteal: $isStealAttempt, previousOwner: ${logEntry.previousOwnerId}');
+    
+    // Resolve previous owner name if needed
+    String? previousOwnerName = logEntry.previousOwnerName;
+    if (isStealAttempt && previousOwnerName == null && logEntry.previousOwnerId != null) {
+      final gameSession = _currentGameSession ?? widget.gameSession;
+      final previousOwner = gameSession.players
+          .where((p) => p.userId == logEntry.previousOwnerId)
+          .firstOrNull;
+      previousOwnerName = previousOwner?.displayName ?? 'Player';
+    }
+    
+    if (isStealAttempt) {
+      // This was a steal attempt
+      if (logEntry.approved) {
+        // Successful steal
+        return [
+          TextSpan(
+            text: logEntry.playerName,
+            style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green),
+          ),
+          const TextSpan(text: ' challenged '),
+          TextSpan(
+            text: previousOwnerName ?? 'opponent',
+            style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.red),
+          ),
+          const TextSpan(text: ' for "'),
+          TextSpan(
+            text: logEntry.word,
+            style: const TextStyle(fontStyle: FontStyle.italic, fontWeight: FontWeight.w500),
+          ),
+          const TextSpan(text: '" and '),
+          const TextSpan(
+            text: 'WON! 🎉',
+            style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green),
+          ),
+        ];
+      } else {
+        // Failed steal attempt
+        return [
+          TextSpan(
+            text: logEntry.playerName,
+            style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.orange),
+          ),
+          const TextSpan(text: ' challenged '),
+          TextSpan(
+            text: previousOwnerName ?? 'opponent',
+            style: const TextStyle(fontWeight: FontWeight.bold),
+          ),
+          const TextSpan(text: ' for "'),
+          TextSpan(
+            text: logEntry.word,
+            style: const TextStyle(fontStyle: FontStyle.italic, fontWeight: FontWeight.w500),
+          ),
+          const TextSpan(text: '" and '),
+          const TextSpan(
+            text: 'LOST! ❌',
+            style: TextStyle(fontWeight: FontWeight.bold, color: Colors.red),
+          ),
+        ];
+      }
+    } else {
+      // Regular word attempt (not a steal)
+      if (logEntry.approved) {
+        return [
+          TextSpan(
+            text: logEntry.playerName,
+            style: const TextStyle(fontWeight: FontWeight.bold),
+          ),
+          const TextSpan(text: ' claimed "'),
+          TextSpan(
+            text: logEntry.word,
+            style: const TextStyle(fontStyle: FontStyle.italic, fontWeight: FontWeight.w500),
+          ),
+          const TextSpan(text: '" '),
+          const TextSpan(
+            text: '✓',
+            style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold),
+          ),
+        ];
+      } else {
+        return [
+          TextSpan(
+            text: logEntry.playerName,
+            style: const TextStyle(fontWeight: FontWeight.bold),
+          ),
+          const TextSpan(text: ' failed "'),
+          TextSpan(
+            text: logEntry.word,
+            style: const TextStyle(fontStyle: FontStyle.italic, fontWeight: FontWeight.w500),
+          ),
+          const TextSpan(text: '" '),
+          const TextSpan(
+            text: '✗',
+            style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
+          ),
+        ];
+      }
     }
   }
 
@@ -668,9 +759,8 @@ class _TeacherPronunciationMonitorState extends State<TeacherPronunciationMonito
               ),
             ),
             
-            // Game Log Section
-            if (gameState?.pronunciationLog.isNotEmpty ?? false)
-              Container(
+            // Game Log Section - Always show for debugging
+            Container(
                 margin: const EdgeInsets.all(16),
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
@@ -701,7 +791,7 @@ class _TeacherPronunciationMonitorState extends State<TeacherPronunciationMonito
                         ),
                         const Spacer(),
                         Text(
-                          '${gameState!.pronunciationLog.length} attempts',
+                          'DEBUG: ${gameState?.pronunciationLog.length ?? 0} attempts - GameState: ${gameState != null ? "exists" : "null"}',
                           style: TextStyle(
                             fontSize: 12,
                             color: Colors.grey[600],
@@ -712,10 +802,11 @@ class _TeacherPronunciationMonitorState extends State<TeacherPronunciationMonito
                     const SizedBox(height: 12),
                     SizedBox(
                       height: 200, // Fixed height for the log
-                      child: ListView.builder(
-                        itemCount: gameState.pronunciationLog.length,
-                        reverse: true, // Show newest first
-                        itemBuilder: (context, index) {
+                      child: (gameState?.pronunciationLog.isNotEmpty ?? false)
+                          ? ListView.builder(
+                              itemCount: gameState!.pronunciationLog.length,
+                              reverse: true, // Show newest first
+                              itemBuilder: (context, index) {
                           final logEntry = gameState.pronunciationLog.reversed.toList()[index];
                           final timeAgo = _formatTimeAgo(logEntry.resolvedTime);
                           
@@ -751,20 +842,7 @@ class _TeacherPronunciationMonitorState extends State<TeacherPronunciationMonito
                                       RichText(
                                         text: TextSpan(
                                           style: const TextStyle(color: Colors.black),
-                                          children: [
-                                            TextSpan(
-                                              text: logEntry.playerName,
-                                              style: const TextStyle(fontWeight: FontWeight.bold),
-                                            ),
-                                            const TextSpan(text: ' said '),
-                                            TextSpan(
-                                              text: '"${logEntry.word}"',
-                                              style: const TextStyle(
-                                                fontStyle: FontStyle.italic,
-                                                fontWeight: FontWeight.w500,
-                                              ),
-                                            ),
-                                          ],
+                                          children: _buildLogNarrative(logEntry),
                                         ),
                                       ),
                                       Text(
@@ -791,7 +869,29 @@ class _TeacherPronunciationMonitorState extends State<TeacherPronunciationMonito
                             ),
                           );
                         },
-                      ),
+                      )
+                          : Center(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  const Text(
+                                    'No pronunciation attempts yet',
+                                    style: TextStyle(
+                                      color: Colors.grey,
+                                      fontSize: 16,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    'DEBUG: GameState is ${gameState == null ? "null" : "not null"}, Log length: ${gameState?.pronunciationLog.length ?? "N/A"}',
+                                    style: const TextStyle(
+                                      color: Colors.red,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
                     ),
                   ],
                 ),

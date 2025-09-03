@@ -1,15 +1,6 @@
 import 'package:flutter/material.dart';
-import 'dart:convert';
 import '../config/app_colors.dart';
-import '../services/session_service.dart';
-import '../utils/safe_print.dart';
-import 'admin_login_page.dart';
-import 'user_login_page.dart';
-import 'game_join_page.dart';
-import 'simple_student_selector.dart';
-import 'simple_game_join_page.dart';
-import 'student_selection_for_join.dart';
-import 'clean_multiplayer_screen.dart';
+import 'game_code_entry_page.dart';
 
 class LandingPage extends StatelessWidget {
   const LandingPage({super.key});
@@ -19,8 +10,6 @@ class LandingPage extends StatelessWidget {
     final screenSize = MediaQuery.of(context).size;
     final isTablet = screenSize.shortestSide >= 600;
     final isLargeScreen = screenSize.shortestSide >= 800; // Large tablets/desktops
-    final screenWidth = MediaQuery.of(context).size.width;
-    final screenHeight = MediaQuery.of(context).size.height;
     
     return Scaffold(
       body: Container(
@@ -110,7 +99,7 @@ class LandingPage extends StatelessWidget {
                             Navigator.push(
                               context,
                               MaterialPageRoute(
-                                builder: (context) => StudentSelectionForJoin(),
+                                builder: (context) => GameCodeEntryPage(),
                               ),
                             );
                           },

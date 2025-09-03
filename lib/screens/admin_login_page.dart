@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../config/app_colors.dart';
 import '../services/local_user_service.dart';
 import '../services/session_service.dart';
+import '../services/firestore_service.dart';
 import '../models/user_model.dart';
 import 'admin_dashboard_page.dart';
 
@@ -62,6 +63,7 @@ class _AdminLoginPageState extends State<AdminLoginPage> {
     }
   }
 
+
   Future<void> _handleLogin() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -76,12 +78,36 @@ class _AdminLoginPageState extends State<AdminLoginPage> {
       // Save email if remember is checked
       await _saveEmailIfNeeded(email);
       
-      // Check if user exists and is admin
-      final user = await LocalUserService.getUserByEmail(email);
+      // Try to get user with Firebase ready check and retry logic
+      UserModel? user;
+      int attempts = 0;
+      const maxAttempts = 3;
+      
+      while (user == null && attempts < maxAttempts) {
+        attempts++;
+        
+        if (!FirestoreService.isFirebaseReady) {
+          // Wait a bit for Firebase to initialize
+          await Future.delayed(Duration(milliseconds: 1000 * attempts));
+          continue;
+        }
+        
+        try {
+          user = await LocalUserService.getUserByEmail(email);
+          break;
+        } catch (e) {
+          if (attempts == maxAttempts) rethrow;
+          await Future.delayed(Duration(milliseconds: 1000 * attempts));
+        }
+      }
       
       if (user == null) {
         setState(() {
-          _errorMessage = 'User not found.';
+          if (!FirestoreService.isFirebaseReady) {
+            _errorMessage = 'Unable to connect to server. Please check your internet connection and try again.';
+          } else {
+            _errorMessage = 'User not found. Please check your email address.';
+          }
           _isLoading = false;
         });
         return;
@@ -97,17 +123,19 @@ class _AdminLoginPageState extends State<AdminLoginPage> {
       
       if (mounted) {
         // Save user and current route for session persistence
-        print('AdminLogin - Saving user: ${user.displayName}, isAdmin: ${user.isAdmin}');
         await SessionService.saveUser(user);
         await SessionService.saveCurrentRoute('/admin-dashboard');
         
         // Navigate to admin dashboard using named route
-        print('AdminLogin - Navigating to admin dashboard');
         Navigator.pushReplacementNamed(context, '/admin-dashboard');
       }
     } catch (e) {
       setState(() {
-        _errorMessage = 'An error occurred. Please try again.';
+        if (!FirestoreService.isFirebaseReady) {
+          _errorMessage = 'Unable to connect to server. Please check your internet connection and try again.';
+        } else {
+          _errorMessage = 'An error occurred. Please try again.';
+        }
         _isLoading = false;
       });
     }

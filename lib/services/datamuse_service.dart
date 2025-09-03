@@ -78,7 +78,6 @@ class DatamuseService {
       return allWords;
       
     } catch (e) {
-      print('Error fetching words: $e');
       
       // Return fallback words on error
       return [

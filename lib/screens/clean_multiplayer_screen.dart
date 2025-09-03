@@ -1,16 +1,19 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:math' as math;
 import 'package:flutter_tts/flutter_tts.dart';
 import '../config/app_colors.dart';
 import '../widgets/animated_dice.dart';
+import '../widgets/player_avatar.dart';
 import '../models/user_model.dart';
 import '../models/game_session_model.dart';
 import '../services/game_state_service.dart';
 import '../services/game_session_service.dart';
 import '../services/firestore_service.dart';
+import '../services/session_service.dart';
 import '../models/game_state_model.dart';
-import '../models/student_model.dart';
+import '../models/player_colors.dart';
 import '../widgets/winning_celebration.dart';
 
 class CleanMultiplayerScreen extends StatefulWidget {
@@ -97,23 +100,174 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
     _gameEnded = true;
     
     final winnerName = _getPlayerName(winnerId);
-    final isCurrentPlayer = winnerId == widget.user.id;
+    // Ensure proper comparison by trimming and converting to same case if needed
+    final isCurrentPlayer = winnerId.trim() == widget.user.id.trim();
     
-    // Show the winning celebration overlay
+    print('DEBUG: Winner Dialog - winnerId: "$winnerId", currentUserId: "${widget.user.id}", isCurrentPlayer: $isCurrentPlayer');
+    print('DEBUG: winnerId length: ${winnerId.length}, currentUserId length: ${widget.user.id.length}');
+    
+    // Calculate personal stats for this player
+    final wordsRead = _currentGameState?.getPlayerScore(widget.user.id) ?? 0;
+    
+    // Show celebration for winner or results dialog for others
+    if (isCurrentPlayer) {
+      print('DEBUG: Showing confetti celebration for winner');
+      // Show confetti celebration for the winner
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => WinningCelebration(
+          winnerName: widget.user.displayName,
+          isCurrentPlayer: true,
+          onComplete: () {
+            if (mounted) {
+              Navigator.of(context).pop();
+              // Show results dialog for winner, which will then navigate home
+              _showResultsDialog(wordsRead, winnerName, isCurrentPlayer);
+            }
+          },
+        ),
+      );
+    } else {
+      print('DEBUG: Showing results dialog for loser');
+      // Show results dialog for non-winners
+      _showResultsDialog(wordsRead, winnerName, isCurrentPlayer);
+    }
+  }
+
+  void _showResultsDialog(int wordsRead, String winnerName, bool isCurrentPlayer) {
+    if (!mounted) return;
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (context) => WinningCelebration(
-        winnerName: winnerName,
-        isCurrentPlayer: isCurrentPlayer,
-        onComplete: () {
-          Navigator.of(context).pop(); // Close the celebration
-          // Teacher will handle game completion - no dialog needed
-        },
+      builder: (context) => Dialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Container(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Title
+              Text(
+                isCurrentPlayer ? "Congratulations!" : "You lost ☹️",
+                style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                  color: isCurrentPlayer ? AppColors.success : AppColors.primary,
+                ),
+              ),
+              const SizedBox(height: 20),
+              
+              // Winner announcement
+              if (!isCurrentPlayer)
+                Text(
+                  "$winnerName won the game!",
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              const SizedBox(height: 20),
+              
+              // Personal stats
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppColors.primary),
+                ),
+                child: Column(
+                  children: [
+                    Text(
+                      "Your Results",
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.primary,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceAround,
+                      children: [
+                        Column(
+                          children: [
+                            // Show player avatar instead of ABC icon
+                            Container(
+                              width: 48,
+                              height: 48,
+                              decoration: BoxDecoration(
+                                color: _getUserColor(widget.user),
+                                shape: BoxShape.circle,
+                                border: Border.all(color: Colors.white, width: 2),
+                              ),
+                              child: Center(
+                                child: Text(
+                                  widget.user.avatarUrl ?? widget.user.displayName[0],
+                                  style: const TextStyle(
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              "$wordsRead",
+                              style: const TextStyle(
+                                fontSize: 24,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const Text("Words Read"),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 24),
+              
+              // OK button
+              ElevatedButton(
+                onPressed: () async {
+                  if (!mounted) return;
+                  final navigator = Navigator.of(context);
+                  navigator.pop(); // Close dialog
+                  // Save results and return to home
+                  await _saveGameResults();
+                  // Navigate back to home page
+                  if (mounted) {
+                    navigator.popUntil((route) => route.isFirst);
+                  }
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                child: const Text(
+                  "OK",
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
-
 
   Future<void> _saveGameResults() async {
     try {
@@ -126,11 +280,6 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
       final isWinner = winnerId == currentUser.id;
       final wordsRead = _currentGameState!.getPlayerScore(currentUser.id);
       
-      print('📊 Saving student game results for ${currentUser.displayName}:');
-      print('  - Student ID: ${currentUser.id}');
-      print('  - Games played: +1');
-      print('  - Games won: ${isWinner ? '+1' : '0'}'); 
-      print('  - Words read: +$wordsRead');
       
       // Update student stats using the StudentModel approach
       await FirestoreService.updateStudentStats(
@@ -139,7 +288,6 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
         won: isWinner,
       );
       
-      print('✅ Student game results saved successfully!');
       
       // Show success message
       ScaffoldMessenger.of(context).showSnackBar(
@@ -150,7 +298,6 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
       );
       
     } catch (e) {
-      print('❌ Error saving student game results: $e');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Failed to save results: $e'),
@@ -166,7 +313,6 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
       gridContent = List<List<String>>.from(
         widget.gameSession.wordGrid!.map((row) => List<String>.from(row))
       );
-      print('Using AI-generated word grid from game session');
     } else {
       // Fallback to default grid
       gridContent = [
@@ -177,7 +323,6 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
         ['happy', 'sad', 'angry', 'excited', 'calm', 'tired'],
         ['sun', 'moon', 'star', 'cloud', 'rain', 'snow'],
       ];
-      print('Using default word grid');
     }
   }
 
@@ -193,7 +338,7 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
         );
       }
     } catch (e) {
-      print('Error initializing game state: $e');
+      // Game state initialization failed, continue without it
     }
   }
 
@@ -201,13 +346,49 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
     try {
       _gameSessionStream = GameSessionService.getGameSessionStream(widget.gameSession.gameId);
       _currentGameSession = widget.gameSession;
+      
+      // Save session for reconnection support
+      // This ensures players can rejoin if they get disconnected
+      SessionService.saveGameSession(widget.gameSession);
+      SessionService.saveCurrentRoute('/multiplayer-game');
     } catch (e) {
-      print('Error initializing game session stream: $e');
+      // Session saving failed, continue without it
     }
   }
 
   Future<void> _rollDice() async {
     if (_isRolling) return;
+    
+    // Check if game is waiting for more players
+    if (_currentGameSession?.isWaiting == true) {
+      _showWaitingForPlayersMessage();
+      return;
+    }
+    
+    // Check if player has already rolled the dice this turn
+    if (_currentGameState?.currentPlayerId == widget.user.id && 
+        _currentGameState?.currentDiceValue != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('You have already rolled the dice this turn!'),
+          duration: Duration(seconds: 2),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+    
+    // Check if player has a pending pronunciation waiting for teacher approval
+    if (_playerHasPendingPronunciation) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Wait for teacher to approve or reject your word before rolling again!'),
+          duration: Duration(seconds: 2),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
     
     setState(() => _isRolling = true);
     
@@ -231,14 +412,21 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
       _currentDiceRoll = diceValue;
       _hasSelectedThisTurn = false; // New dice roll = new turn = can select again
     });
-    print('🎲 New dice rolled: $diceValue - Fresh turn, can make ONE selection');
   }
 
   // Helper methods to avoid duplicate calculations
   bool get _isMyTurn => _currentGameState?.currentTurnPlayerId == widget.user.id ?? false;
   bool get _playerHasPendingPronunciation => _currentGameState?.pendingPronunciations.values
       .any((attempt) => attempt.playerId == widget.user.id) ?? false;
+  bool get _hasAlreadyRolled => _currentGameState?.currentPlayerId == widget.user.id && 
+      _currentGameState?.currentDiceValue != null;
   
+  // Device type helpers
+  bool get _isMobile => MediaQuery.of(context).size.width < 600;
+  bool get _isTablet => MediaQuery.of(context).size.width >= 600 && MediaQuery.of(context).size.width < 1200;
+  bool get _isDesktopWeb => kIsWeb && MediaQuery.of(context).size.width >= 1200;
+  bool get _isWeb => kIsWeb;
+
   // CENTRALIZED TAP HANDLER - All cell taps MUST go through this method
   // This ensures consistent validation and prevents multiple selections
   bool _canSelectCell({
@@ -249,80 +437,68 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
   }) {
     // Check if we're already processing another selection
     if (_isProcessingSelection) {
-      if (showDebugLogs) print('❌ Cannot select: Already processing another selection');
       return false;
     }
     
     if (_currentGameState == null) {
-      if (showDebugLogs) print('❌ Cannot select: Game state is null');
+      return false;
+    }
+    
+    // Check if game is waiting for more players
+    if (_currentGameSession?.isWaiting == true) {
       return false;
     }
     
     // Check if it's player's turn
     if (!_isMyTurn) {
-      if (showDebugLogs) print('❌ Cannot select: Not your turn');
       return false;
     }
     
     // Check if dice has been rolled
     final diceValue = _currentGameState!.currentDiceValue;
     if (showDebugLogs) {
-      print('🎲 DEBUG: Dice validation check:');
-      print('  gameState.currentDiceValue: $diceValue');
-      print('  local _currentDiceRoll: $_currentDiceRoll');
-      print('  player trying to select: ${widget.user.id}');
-      print('  currentTurnPlayerId: ${_currentGameState!.currentTurnPlayerId}');
     }
     
     if (diceValue == null) {
-      if (showDebugLogs) print('❌ Cannot select: No dice rolled yet! Roll dice first.');
       return false;
     }
     
     // Check if valid column for dice roll
     final validColumn = col + 1 == diceValue;
     if (!validColumn) {
-      if (showDebugLogs) print('❌ Cannot select: Wrong column! Dice: $diceValue, Selected: ${col + 1}');
       return false;
     }
     
     // Check if cell is already owned BY THE CURRENT PLAYER (stealing is allowed from others)
     final cellOwner = _currentGameState!.getCellOwner(cellKey);
     if (cellOwner == widget.user.id) {
-      if (showDebugLogs) print('❌ Cannot select: You already own this cell');
       return false;
     } else if (cellOwner != null) {
       // Cell is owned by another player - stealing is allowed!
-      if (showDebugLogs) print('⚔️ STEAL ATTEMPT: Trying to steal cell from $cellOwner');
     }
     
     // Check if there's already a pending pronunciation for this cell
     final hasPendingPronunciation = _currentGameState!.hasPendingPronunciation(cellKey);
     if (hasPendingPronunciation) {
-      if (showDebugLogs) print('❌ Cannot select: Cell already has a pending pronunciation');
       return false;
     }
     
     // CRITICAL: Check if player already made a selection this dice roll
     if (_hasSelectedThisTurn) {
-      if (showDebugLogs) print('❌ BLOCKED: You already selected a square for dice roll $_currentDiceRoll');
       return false;
     }
     
     // SECONDARY: Check if player has ANY pending pronunciations (prevents multiple selections)
     if (_playerHasPendingPronunciation) {
       if (showDebugLogs) {
-        print('❌ BLOCKED: You have pending pronunciations - wait for teacher response');
         final pendingAttempts = _currentGameState!.pendingPronunciations.values
             .where((attempt) => attempt.playerId == widget.user.id)
             .map((a) => '${a.cellKey}:${a.word}')
             .toList();
-        print('  Your pending pronunciations: $pendingAttempts');
       }
       return false;
     }
     
-    if (showDebugLogs) print('✅ Cell selection allowed for $cellKey');
     return true;
   }
   
@@ -420,11 +596,9 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
     final cellKey = '$row,$col';
     final word = gridContent[row][col];
     
-    print('🎯 CELL TAP ATTEMPT: $cellKey:$word at ${DateTime.now()}');
     
     // IMMEDIATE: Check if we're already processing a selection
     if (_isProcessingSelection) {
-      print('❌ BLOCKED: Already processing a selection (flag is true)');
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Please wait...'),
@@ -439,7 +613,6 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
     if (_lastSelectionTime != null) {
       final timeSinceLastSelection = DateTime.now().difference(_lastSelectionTime!);
       if (timeSinceLastSelection.inMilliseconds < 1000) {
-        print('❌ BLOCKED: Too soon since last selection (${timeSinceLastSelection.inMilliseconds}ms < 1000ms)');
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Slow down! One selection at a time.'),
@@ -453,7 +626,6 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
     
     // DUPLICATE CHECK: Prevent selecting the same cell twice
     if (_lastSelectedCell == cellKey) {
-      print('❌ BLOCKED: Same cell already selected: $cellKey');
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('You already selected this square!'),
@@ -475,12 +647,10 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
         .any((attempt) => attempt.playerId == widget.user.id) ?? false;
     
     if (pendingCheck) {
-      print('❌ BLOCKED: Double-check found pending pronunciation!');
       final pending = _currentGameState!.pendingPronunciations.values
           .where((attempt) => attempt.playerId == widget.user.id)
           .map((a) => '${a.cellKey}:${a.word}')
           .toList();
-      print('  Pending: $pending');
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Wait for teacher to approve or reject your current word!'),
@@ -491,7 +661,6 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
       return;
     }
     
-    print('✅ ALL CHECKS PASSED: Processing cell selection for $cellKey:$word');
     
     // CRITICAL: Set ALL blocking flags immediately
     setState(() {
@@ -513,13 +682,11 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
         playerIds: playerIds,
       );
       
-      print('✅ Pronunciation attempt created successfully for $cellKey');
       
       // Keep the processing flag true for longer to ensure Firebase updates
       await Future.delayed(const Duration(seconds: 2));
       
     } catch (e) {
-      print('❌ Error creating pronunciation attempt: $e');
       // Reset on error
       if (mounted) {
         setState(() {
@@ -552,7 +719,6 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
     );
     
     // DON'T reset selection state here - player should only get ONE selection per dice roll
-    print('✅ Pronunciation approved - but player cannot select more squares this turn');
   }
 
   void _rejectPronunciation(String cellKey) async {
@@ -566,7 +732,6 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
     );
     
     // DON'T reset selection state here - player should only get ONE selection per dice roll
-    print('❌ Pronunciation rejected - but player cannot select more squares this turn');
   }
   
   void _resetSelectionState() {
@@ -577,7 +742,6 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
         _lastSelectionTime = null;
         _hasSelectedThisTurn = false; // Reset turn-based blocking
       });
-      print('🔄 Selection state reset - ready for next turn');
     }
   }
 
@@ -658,20 +822,29 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
     }
   }
 
+  // Helper method to get player's assigned color from their stored color value
+  Color _getPlayerColor(PlayerInGame player) {
+    if (player.playerColor != null) {
+      return Color(player.playerColor!);
+    }
+    // Fallback to default color if no color assigned
+    return PlayerColors.getDefaultColor();
+  }
+
+  // Helper method to get user's assigned color from their stored color value
+  Color _getUserColor(UserModel user) {
+    if (user.playerColor != null) {
+      return user.playerColor!;
+    }
+    // Fallback to default color if no color assigned
+    return PlayerColors.getDefaultColor();
+  }
+
   @override
   Widget build(BuildContext context) {
     final gameCode = widget.gameSession.gameId.length >= 6 
         ? widget.gameSession.gameId.substring(0, 6).toUpperCase() 
         : widget.gameSession.gameId.toUpperCase();
-    
-    // Check for winner and show celebration
-    final winnerId = _currentGameState?.checkForWinner();
-    if (winnerId != null && !_gameEnded) {
-      print('🏆 WINNER DETECTED: $winnerId (${_getPlayerName(winnerId)}) - showing celebration!');
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _showWinnerDialog(winnerId);
-      });
-    }
     
     return Scaffold(
       backgroundColor: AppColors.gameBackground,
@@ -706,36 +879,19 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
             ),
           ],
         ) : Text(
-          'Roll & Read',
+          'Roll and Read',
           style: TextStyle(
             fontSize: 24,
             fontWeight: FontWeight.bold,
           ),
         ),
-        actions: [
-          IconButton(
-            icon: Icon(Icons.exit_to_app),
-            onPressed: _showQuitDialog,
-            tooltip: 'Quit Game',
-          ),
-        ],
+        actions: [],
         centerTitle: true,
         elevation: 2,
       ),
       body: StreamBuilder<GameSessionModel?>(
         stream: _gameSessionStream,
         builder: (context, gameSessionSnapshot) {
-          // Debug teacher view updates
-          if (widget.isTeacherMode) {
-            print('🎯 CleanMultiplayerScreen (Teacher) Stream Update:');
-            print('  connectionState: ${gameSessionSnapshot.connectionState}');
-            print('  hasData: ${gameSessionSnapshot.hasData}');
-            if (gameSessionSnapshot.hasData && gameSessionSnapshot.data != null) {
-              print('  players: ${gameSessionSnapshot.data!.players.length}/${gameSessionSnapshot.data!.maxPlayers}');
-              print('  player details: ${gameSessionSnapshot.data!.players.map((p) => '${p.displayName}(${p.userId})').toList()}');
-            }
-          }
-          
           // Check if game has been deleted (for students)
           if (!widget.isTeacherMode && gameSessionSnapshot.data == null && gameSessionSnapshot.connectionState != ConnectionState.waiting) {
             // Game was deleted by teacher - show dialog and navigate home
@@ -772,11 +928,9 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
                 final previousTurnPlayer = _previousTurnPlayerId;
                 
                 if (currentTurnPlayer != previousTurnPlayer && currentTurnPlayer != null) {
-                  print('🔄 TURN CHANGE DETECTED: $previousTurnPlayer -> $currentTurnPlayer');
                   
                   // If it's now my turn and I'm not in teacher mode, reset selection state and dice
                   if (currentTurnPlayer == widget.user.id && !widget.isTeacherMode) {
-                    print('🎯 My turn started! Resetting selection state and dice');
                     WidgetsBinding.instance.addPostFrameCallback((_) {
                       if (mounted) {
                         setState(() {
@@ -795,6 +949,18 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
               }
               
               _currentGameState = newGameState;
+              
+              // Check for winner and show celebration (moved from build method)
+              final winnerId = _currentGameState?.checkForWinner();
+              if (winnerId != null && !_gameEnded) {
+                print('DEBUG: Winner detected in StreamBuilder! winnerId: $winnerId, currentUserId: ${widget.user.id}');
+                print('DEBUG: winnerId type: ${winnerId.runtimeType}, currentUserId type: ${widget.user.id.runtimeType}');
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (mounted) {
+                    _showWinnerDialog(winnerId);
+                  }
+                });
+              }
               
               // Check if game session has ended (for students)
               if (!widget.isTeacherMode && _currentGameSession != null) {
@@ -841,21 +1007,44 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
       builder: (context, constraints) {
         final screenWidth = constraints.maxWidth;
         final screenHeight = constraints.maxHeight;
-        // Use consistent proportions for all screen sizes  
-        final padding = screenWidth * 0.02; // 2% of screen width for padding
+        // Use consistent proportions for all screen sizes - balanced padding
+        final padding = screenWidth * 0.015; // 1.5% of screen width for padding (balanced approach)
         
         // Calculate available space
         final safeHeight = screenHeight - padding * 2;
         final safeWidth = screenWidth - padding * 2;
         
         // Better space distribution with more spacing
-        final headerHeight = safeHeight * 0.10;  // 10% for player cards
-        final diceHeight = safeHeight * 0.08;    // 8% for clickable dice
-        final controlsHeight = widget.isTeacherMode ? safeHeight * 0.12 : safeHeight * 0.02; // Minimal for students
-        final boardAreaHeight = safeHeight * 0.80; // 80% for game board
+        // Device type detection
+        final screenAspectRatio = safeWidth / safeHeight;
         
-        // Make board square, scaled to fit available space (smaller for proper gradient coverage)
-        final maxBoardSize = math.min(safeWidth * 0.85, boardAreaHeight * 0.85);
+        // Responsive space allocation - MORE space for board now! Bigger dice especially for mobile
+        final diceHeight = _isMobile ? safeHeight * 0.10 : safeHeight * 0.08;   // Dice space - bigger for mobile  
+        final controlsHeight = widget.isTeacherMode 
+            ? (_isMobile ? safeHeight * 0.09 : safeHeight * 0.11) 
+            : safeHeight * 0.02; // Smaller teacher controls on mobile
+        // Board gets much more space now without player cards!
+        final boardAreaHeight = _isMobile ? safeHeight * 0.92 : safeHeight * 0.88;
+        
+        // Responsive board sizing - more aggressive on mobile for better usability
+        
+        // Adjust scaling factors based on device type - balanced space usage
+        double widthScale, heightScale;
+        if (_isMobile) {
+          // Mobile: use more space but leave room for overflow protection
+          widthScale = screenAspectRatio > 0.7 ? 0.96 : 0.94; // Portrait vs landscape
+          heightScale = 0.96; // Leave some buffer for overflow
+        } else if (_isTablet) {
+          // Tablet: more generous approach
+          widthScale = 0.90;
+          heightScale = 0.90;
+        } else {
+          // Desktop: conservative but improved
+          widthScale = 0.86;
+          heightScale = 0.86;
+        }
+        
+        final maxBoardSize = math.min(safeWidth * widthScale, boardAreaHeight * heightScale);
         final boardSize = maxBoardSize;
         
         return SizedBox(
@@ -866,28 +1055,34 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
             child: Column(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    // Header with player cards
-                    SizedBox(
-                      height: headerHeight,
-                      child: _buildPlayerCards(),
-                    ),
+                    // Turn indicator banner
+                    _buildTurnIndicator(safeHeight),
                     
-                    // Spacing
-                    SizedBox(height: safeHeight * 0.01),
-                    
-                    // Clickable dice - between player cards and board
-                    SizedBox(
-                      height: diceHeight,
-                      child: Center(
-                        child: _buildCenteredDice(),
+                    // Dice area - centered on web, fixed spacing on mobile
+                    if (_isWeb)
+                      Expanded(
+                        flex: 1,
+                        child: Center(
+                          child: SizedBox(
+                            height: diceHeight,
+                            child: _buildCenteredDice(),
+                          ),
+                        ),
+                      )
+                    else ...[
+                      // Fixed spacing for mobile/tablet
+                      SizedBox(height: safeHeight * 0.04),
+                      SizedBox(
+                        height: diceHeight,
+                        child: Center(
+                          child: _buildCenteredDice(),
+                        ),
                       ),
-                    ),
-                    
-                    // Spacing
-                    SizedBox(height: safeHeight * 0.01),
-                    
-                    // Game board with overlay - maximum space
+                    ],
+
+                    // Game board with overlay (responsive)
                     Expanded(
+                      flex: _isMobile ? 3 : 4, // Less space on mobile, more on tablet
                       child: Stack(
                     children: [
                       // Game board
@@ -915,11 +1110,17 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
                           ),
                         ),
                     ],
-                  ),
-                ),
-                
-                // Spacing
-                SizedBox(height: safeHeight * 0.01),
+                      ),
+                    ),
+
+                // Flexible spacer - more on mobile for better centering
+                if (_isMobile)
+                  Expanded(
+                    flex: 1,
+                    child: SizedBox(),
+                  )
+                else
+                  SizedBox(height: safeHeight * 0.01),
                 
                 // Controls
                 SizedBox(
@@ -1075,46 +1276,59 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
           diceValue = gameStateDiceValue;
         }
         
-        // Proportional sizing
-        final diceSize = constraints.maxHeight * 0.7;
+        // Proportional sizing - larger animated dice
+        final diceSize = constraints.maxHeight * 0.8;
         final fontSize = constraints.maxHeight * 0.25;
         
         return Row(
           mainAxisAlignment: MainAxisAlignment.center,
           mainAxisSize: MainAxisSize.min,
           children: [
-              // Dice
-              GestureDetector(
-                onTap: widget.isTeacherMode 
-                    ? () => _showTeacherCantRollMessage()
-                    : (!_isMyTurn 
-                        ? () => _showNotYourTurnMessage()
-                        : (_isRolling 
-                            ? () => _showDiceAlreadyRollingMessage()
-                            : _rollDice)),
-                child: AnimatedDice(
-                  value: diceValue,
-                  isRolling: _isRolling,
-                  size: diceSize,
+              // Only show dice if game is not over
+              if (!_gameEnded && _currentGameState?.checkForWinner() == null) ...[
+                // Dice
+                GestureDetector(
+                  onTap: widget.isTeacherMode 
+                      ? () => _showTeacherCantRollMessage()
+                      : (_currentGameSession?.isWaiting == true
+                          ? () => _showWaitingForPlayersMessage()
+                          : (!_isMyTurn 
+                              ? () => _showNotYourTurnMessage()
+                              : (_hasAlreadyRolled
+                                  ? () => _showAlreadyRolledMessage()
+                                  : (_playerHasPendingPronunciation
+                                      ? () => _showPendingPronunciationMessage()
+                                      : (_isRolling 
+                                          ? () => _showDiceAlreadyRollingMessage()
+                                          : _rollDice))))),
+                  child: AnimatedDice(
+                    value: diceValue,
+                    isRolling: _isRolling,
+                    size: diceSize,
+                  ),
                 ),
-              ),
-              
-              // Status text next to dice
-              SizedBox(width: constraints.maxWidth * 0.02),
-              Text(
-                widget.isTeacherMode 
-                  ? (_isRolling ? 'Rolling...' : 'Teacher View')
-                  : (_isMyTurn 
-                    ? (_isRolling ? 'Rolling...' : 'Tap to roll!')
-                    : 'Waiting for turn...'),
-                style: TextStyle(
-                  fontSize: fontSize,
-                  fontWeight: FontWeight.w500,
-                  color: widget.isTeacherMode 
-                    ? AppColors.primary 
-                    : (_isMyTurn ? AppColors.success : AppColors.textSecondary),
+                
+                // Status text next to dice
+                SizedBox(width: constraints.maxWidth * 0.02),
+                Text(
+                  widget.isTeacherMode 
+                    ? (_isRolling ? 'Rolling...' : 'Teacher View')
+                    : (_currentGameSession?.isWaiting == true
+                      ? 'Waiting for players...'
+                      : (_isMyTurn 
+                          ? (_hasAlreadyRolled
+                              ? 'Select a word!'
+                              : (_playerHasPendingPronunciation
+                                  ? 'Waiting for teacher...'
+                                  : (_isRolling ? 'Rolling...' : 'Tap to roll!')))
+                          : 'Waiting for turn...')),
+                  style: TextStyle(
+                    fontSize: fontSize,
+                    fontWeight: FontWeight.w500,
+                    color: AppColors.primary, // Always use primary color
+                  ),
                 ),
-              ),
+              ],
           ],
         );
       },
@@ -1143,45 +1357,11 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
                   final score = _currentGameState?.getPlayerScore(player.userId) ?? 0;
                   final isCurrentTurn = _currentGameState?.currentTurnPlayerId == player.userId;
                   final isCurrentUser = player.userId == widget.user.id;
-                  // For current user, prioritize their actual user color to ensure consistency
-                  Color playerColor;
-                  
-                  // TEMPORARY DEBUG FIX: If this is Ian, force blue color
-                  if (isCurrentUser && (player.displayName.toLowerCase() == 'ian' || widget.user.displayName.toLowerCase() == 'ian')) {
-                    playerColor = Colors.blue;
-                    print('🔧 TEMP FIX: Forcing Ian to blue color');
-                  } else if (isCurrentUser && widget.user.playerColor != null) {
-                    // Always use the user's actual color for the current user
-                    playerColor = widget.user.playerColor!;
-                  } else if (player.playerColor != null) {
-                    // Use game session color for other players
-                    playerColor = Color(player.playerColor!);
-                  } else {
-                    // Final fallback
-                    playerColor = AppColors.gamePrimary;
-                  }
-                  
-                  // Debug player color info
-                  if (player.userId == widget.user.id) {
-                    print('DEBUG: Player widget color for ${player.displayName} (userId: ${player.userId}):');
-                    print('  FROM GAME SESSION player.playerColor: ${player.playerColor}');
-                    if (player.playerColor != null) {
-                      print('  Game session color as Color: ${Color(player.playerColor!)} (${Color(player.playerColor!).value})');
-                    }
-                    print('  FROM USER OBJECT widget.user.playerColor: ${widget.user.playerColor}');
-                    print('  widget.user.playerColor?.value: ${widget.user.playerColor?.value}');
-                    print('  isCurrentUser: ${isCurrentUser}');
-                    print('  Final playerColor chosen: $playerColor (value: ${playerColor.value})');
-                    print('  Expected color should be: Blue (${Colors.blue.value}) if Ian chose blue');
-                    print('  Color selection logic:');
-                    if (isCurrentUser && widget.user.playerColor != null) {
-                      print('    ✅ Using current user color (priority): ${widget.user.playerColor?.value}');
-                    } else if (player.playerColor != null) {
-                      print('    - Using game session color: ${player.playerColor}');
-                    } else {
-                      print('    - Using fallback AppColors.gamePrimary: ${AppColors.gamePrimary.value}');
-                    }
-                  }
+                  // Assign color based on player position for consistent identification
+                  final playerPosition = gameSession.players.indexOf(player);
+                  final playerColor = playerPosition < PlayerColors.availableColors.length
+                      ? PlayerColors.availableColors[playerPosition].color
+                      : PlayerColors.getDefaultColor();
                   
                   return Flexible(
                     child: Container(
@@ -1212,47 +1392,59 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
                         mainAxisSize: MainAxisSize.min,
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          // Avatar
-                          Container(
-                            width: avatarSize,
-                            height: avatarSize,
-                            decoration: BoxDecoration(
-                              color: playerColor.withOpacity(0.15),
-                              shape: BoxShape.circle,
-                              border: Border.all(
-                                color: isCurrentTurn ? AppColors.success : playerColor,
-                                width: isCurrentTurn ? 2 : 1,
-                              ),
-                            ),
-                            child: Center(
-                              child: Text(
-                                player.avatarUrl ?? player.displayName.substring(0, 1).toUpperCase(),
-                                style: TextStyle(
-                                  fontSize: avatarSize * 0.5,
-                                  fontWeight: FontWeight.bold,
-                                  color: playerColor,
-                                ),
-                              ),
-                            ),
+                          // Enhanced Player Avatar with better visual differentiation
+                          PlayerAvatarCompact(
+                            displayName: player.displayName,
+                            avatarUrl: player.avatarUrl,
+                            playerColor: playerColor,
+                            size: avatarSize,
+                            isCurrentTurn: isCurrentTurn,
+                            isCurrentUser: isCurrentUser,
                           ),
                           
                           SizedBox(width: padding),
                           
-                          // Name and score column
+                          // Name and score column with enhanced styling
                           Expanded(
                             child: Column(
                               mainAxisAlignment: MainAxisAlignment.center,
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(
-                                  player.displayName,
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.w600,
-                                    fontSize: fontSize,
-                                    color: AppColors.textPrimary,
+                                Container(
+                                  padding: EdgeInsets.symmetric(
+                                    horizontal: padding * 2,
+                                    vertical: padding,
                                   ),
-                                  overflow: TextOverflow.fade,
-                                  maxLines: 2,
+                                  decoration: BoxDecoration(
+                                    color: isCurrentTurn 
+                                        ? AppColors.success.withOpacity(0.1)
+                                        : (isCurrentUser 
+                                            ? playerColor.withOpacity(0.1) 
+                                            : Colors.transparent),
+                                    borderRadius: BorderRadius.circular(padding * 2),
+                                    border: isCurrentTurn || isCurrentUser
+                                        ? Border.all(
+                                            color: isCurrentTurn 
+                                                ? AppColors.success.withOpacity(0.3)
+                                                : playerColor.withOpacity(0.3),
+                                            width: 1,
+                                          )
+                                        : null,
+                                  ),
+                                  child: Text(
+                                    player.displayName,
+                                    style: TextStyle(
+                                      fontWeight: isCurrentTurn 
+                                          ? FontWeight.bold 
+                                          : (isCurrentUser ? FontWeight.w600 : FontWeight.w500),
+                                      fontSize: fontSize,
+                                      color: isCurrentTurn 
+                                          ? AppColors.success 
+                                          : (isCurrentUser ? playerColor : AppColors.textPrimary),
+                                    ),
+                                    overflow: TextOverflow.fade,
+                                    maxLines: 2,
+                                  ),
                                 ),
                                 SizedBox(height: 2),
                                 Row(
@@ -1337,21 +1529,14 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
     final rows = gridContent.length; // Should be 6
     final totalColumns = 6; // 6 word columns
     
-    // Get current player info for coloring
-    final currentPlayer = widget.user;
-    final playerColor = currentPlayer.playerColor ?? AppColors.primary;
-    final darkerPlayerColor = Color.fromRGBO(
-      (playerColor.red * 0.7).round(),
-      (playerColor.green * 0.7).round(), 
-      (playerColor.blue * 0.7).round(),
-      1.0,
-    );
+    // Get current player info for coloring using consistent color system
+    final currentPlayerInGame = widget.gameSession.players
+        .where((p) => p.userId == widget.user.id)
+        .firstOrNull;
+    final playerColor = currentPlayerInGame != null 
+        ? _getPlayerColor(currentPlayerInGame)
+        : AppColors.primary;
     
-    print('DEBUG: Player color info:');
-    print('  User: ${currentPlayer.displayName}');
-    print('  Raw playerColor: ${currentPlayer.playerColor}');
-    print('  Computed playerColor: $playerColor');
-    print('  Darker playerColor: $darkerPlayerColor');
     
     // Check if it's player's turn AND they have actually rolled the dice
     final hasRolledDice = _currentGameState?.lastDiceRoll != null;
@@ -1398,7 +1583,6 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
                     isOwnedByMe: isOwnedByMe,
                     hasPending: hasPendingPronunciation,
                     playerColor: playerColor,
-                    darkerPlayerColor: darkerPlayerColor,
                     cellSize: availableSize / 6,
                     rowIndex: rowIndex,
                     colIndex: colIndex,
@@ -1445,10 +1629,96 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
             ],
           ),
           child: Center(
-            child: _buildDiceDots(number, cellSize * 0.5), // Reduced size for AspectRatio
+            child: _buildSquareDice(number, cellSize * 0.65), // Even bigger square dice container
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildSquareDice(int number, double diceSize) {
+    final dotSize = diceSize * 0.15;
+    final dotColor = AppColors.primary;
+    
+    Widget dot() => Container(
+      width: dotSize,
+      height: dotSize,
+      decoration: BoxDecoration(
+        color: dotColor,
+        shape: BoxShape.circle,
+      ),
+    );
+
+    Widget empty() => SizedBox(width: dotSize, height: dotSize);
+
+    Widget dicePattern;
+    switch (number) {
+      case 1:
+        dicePattern = Center(child: dot());
+        break;
+      case 2:
+        dicePattern = Column(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Row(mainAxisAlignment: MainAxisAlignment.start, children: [dot()]),
+            Row(mainAxisAlignment: MainAxisAlignment.end, children: [dot()]),
+          ],
+        );
+        break;
+      case 3:
+        dicePattern = Column(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Row(mainAxisAlignment: MainAxisAlignment.start, children: [dot()]),
+            Row(mainAxisAlignment: MainAxisAlignment.center, children: [dot()]),
+            Row(mainAxisAlignment: MainAxisAlignment.end, children: [dot()]),
+          ],
+        );
+        break;
+      case 4:
+        dicePattern = Column(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [dot(), dot()]),
+            Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [dot(), dot()]),
+          ],
+        );
+        break;
+      case 5:
+        dicePattern = Column(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [dot(), dot()]),
+            Row(mainAxisAlignment: MainAxisAlignment.center, children: [dot()]),
+            Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [dot(), dot()]),
+          ],
+        );
+        break;
+      case 6:
+        dicePattern = Column(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [dot(), dot()]),
+            Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [dot(), dot()]),
+            Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [dot(), dot()]),
+          ],
+        );
+        break;
+      default:
+        dicePattern = Container();
+    }
+
+    // Return a square dice container with border like reference image
+    return Container(
+      width: diceSize,
+      height: diceSize,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border.all(color: AppColors.primary, width: 1.5),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      padding: EdgeInsets.all(diceSize * 0.1),
+      child: dicePattern,
     );
   }
 
@@ -1547,7 +1817,6 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
     required bool isOwnedByMe,
     required bool hasPending,
     required Color playerColor,
-    required Color darkerPlayerColor,
     required double cellSize,
     required int rowIndex,
     required int colIndex,
@@ -1566,7 +1835,6 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
       backgroundColor = Colors.white; // Base color for contested cells
       borderColor = Colors.purple.shade600; // Purple border for steal attempt
       textColor = Colors.black87;
-      print('🏴‍☠️ STEAL VISUALIZATION: Showing diagonal split for cell $cellKey');
     } else if (hasPending) {
       // Pending pronunciation on unowned cell - yellow
       backgroundColor = Colors.yellow.shade200;
@@ -1578,9 +1846,9 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
       borderColor = Colors.purple.shade600; // Purple border for contested
       textColor = Colors.black87;
     } else if (isOwnedByMe) {
-      // Owned by current player - use player's darker color
-      backgroundColor = darkerPlayerColor;
-      borderColor = darkerPlayerColor;
+      // Owned by current player - use player's color
+      backgroundColor = playerColor;
+      borderColor = playerColor;
       textColor = Colors.white;
     } else if (isOwned) {
       // Owned by other player - get their color
@@ -1641,18 +1909,59 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
                 ),
               ],
             ),
-            child: Center(
-              child: Text(
-                word,
-                style: TextStyle(
-                  fontSize: 14, // Fixed size that will scale with container
-                  fontWeight: FontWeight.w600,
-                  color: textColor,
+            child: Stack(
+              children: [
+                // Player name at top center for owned cells
+                if (isOwned) 
+                  Positioned(
+                    top: 2,
+                    left: 2,
+                    right: 2,
+                    child: Builder(
+                      builder: (context) {
+                        final cellOwner = _currentGameState?.getCellOwner(cellKey);
+                        if (cellOwner == null) return Container();
+                        
+                        final gameSession = _currentGameSession ?? widget.gameSession;
+                        final ownerPlayer = gameSession.players
+                            .where((p) => p.userId == cellOwner)
+                            .firstOrNull;
+                        
+                        if (ownerPlayer == null) return Container();
+                        
+                        return Text(
+                          ownerPlayer.displayName,
+                          style: TextStyle(
+                            fontSize: cellSize * 0.12,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                            decoration: TextDecoration.underline,
+                            decorationColor: Colors.white,
+                            decorationThickness: 2.0,
+                            decorationStyle: TextDecorationStyle.solid,
+                          ),
+                          textAlign: TextAlign.center,
+                          overflow: TextOverflow.ellipsis,
+                          maxLines: 1,
+                        );
+                      },
+                    ),
+                  ),
+                // Word text
+                Center(
+                  child: Text(
+                    word,
+                    style: TextStyle(
+                      fontSize: 14, // Fixed size that will scale with container
+                      fontWeight: FontWeight.w600,
+                      color: textColor,
+                    ),
+                    textAlign: TextAlign.center,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
-                textAlign: TextAlign.center,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
+              ],
             ),
           ),
         ),
@@ -1683,10 +1992,8 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
               .where((p) => p.userId == entry.key)
               .firstOrNull;
           
-          if (player?.playerColor != null) {
-            final color = Color(player!.playerColor!);
-            // Make colors darker for better visibility
-            colors.add(_darkenColor(color));
+          if (player != null) {
+            colors.add(_getPlayerColor(player));
           }
         }
       }
@@ -1711,7 +2018,7 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
           .where((p) => p.userId == cellOwner)
           .firstOrNull;
       if (ownerPlayer != null) {
-        colors.add(Color(ownerPlayer.playerColor ?? Colors.blue.value));
+        colors.add(_getPlayerColor(ownerPlayer));
       }
     }
     
@@ -1722,11 +2029,10 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
           .where((p) => p.userId == pendingPronunciation.playerId)
           .firstOrNull;
       if (challengerPlayer != null) {
-        colors.add(Color(challengerPlayer.playerColor ?? Colors.red.value));
+        colors.add(_getPlayerColor(challengerPlayer));
       }
     }
     
-    print('🎨 STEAL COLORS for $cellKey: Owner vs Challenger = ${colors.length} colors');
     return colors;
   }
   
@@ -1741,15 +2047,8 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
         .where((p) => p.userId == cellOwner)
         .firstOrNull;
     
-    if (ownerPlayer?.playerColor != null) {
-      final ownerColor = Color(ownerPlayer!.playerColor!);
-      // Return darker version
-      return Color.fromRGBO(
-        (ownerColor.red * 0.7).round(),
-        (ownerColor.green * 0.7).round(), 
-        (ownerColor.blue * 0.7).round(),
-        1.0,
-      );
+    if (ownerPlayer != null) {
+      return _getPlayerColor(ownerPlayer);
     }
     
     // Fallback colors based on player index
@@ -1765,7 +2064,7 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
 
   Widget _buildBoardDiceRow(double boardSize, int diceValue) {
     return Container(
-      height: boardSize * 0.18, // 18% of board height (increased from 12%)
+      height: boardSize * (_isMobile ? 0.15 : 0.18), // Smaller dice row on mobile for more word grid space
       padding: EdgeInsets.symmetric(horizontal: boardSize * 0.02),
       child: Row(
         children: List.generate(6, (index) {
@@ -1887,7 +2186,6 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
     // Parse row and column from cellKey
     final parts = cellKey.split(',');
     if (parts.length != 2) {
-      print('❌ Invalid cell key format: $cellKey');
       return;
     }
     
@@ -1895,7 +2193,6 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
     final col = int.tryParse(parts[1]);
     
     if (row == null || col == null) {
-      print('❌ Invalid row/col in cell key: $cellKey');
       return;
     }
     
@@ -1939,8 +2236,8 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
         
         // Cell color based on owner
         Color? cellColor;
-        if (isCompleted && cellOwner != null && cellOwner.playerColor != null) {
-          cellColor = Color(cellOwner.playerColor!).withOpacity(0.3);
+        if (isCompleted && cellOwner != null) {
+          cellColor = _getPlayerColor(cellOwner).withOpacity(0.3);
         }
         
         // Column color for dice match - vibrant rainbow colors
@@ -1963,7 +2260,7 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
               borderRadius: BorderRadius.circular(cellSize * 0.15),
               border: Border.all(
                 color: cellColor != null
-                  ? Color(cellOwner!.playerColor!)
+                  ? _getPlayerColor(cellOwner!)
                   : (isDiceColumn 
                     ? AppColors.primary.withOpacity(0.5)
                     : Colors.grey.shade300),
@@ -1977,18 +2274,45 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
                 ),
               ],
             ),
-            child: Center(
-              child: FittedBox(
-                fit: BoxFit.scaleDown,
-                child: Text(
-                  word,
-                  style: TextStyle(
-                    fontSize: cellSize * 0.35,
-                    fontWeight: isCompleted ? FontWeight.bold : FontWeight.w600,
-                    color: isCompleted ? Colors.white : AppColors.textPrimary,
+            child: Stack(
+              children: [
+                // Player name at top center for owned cells
+                if (isCompleted && cellOwner != null) 
+                  Positioned(
+                    top: 2,
+                    left: 2,
+                    right: 2,
+                    child: Text(
+                      cellOwner.displayName,
+                      style: TextStyle(
+                        fontSize: cellSize * 0.12,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                        decoration: TextDecoration.underline,
+                        decorationColor: Colors.white,
+                        decorationThickness: 2.0,
+                        decorationStyle: TextDecorationStyle.solid,
+                      ),
+                      textAlign: TextAlign.center,
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 1,
+                    ),
+                  ),
+                // Word text centered
+                Center(
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      word,
+                      style: TextStyle(
+                        fontSize: math.max(cellSize * 0.35, _isMobile ? 14.0 : 12.0),
+                        fontWeight: isCompleted ? FontWeight.bold : FontWeight.w600,
+                        color: isCompleted ? Colors.white : AppColors.textPrimary,
+                      ),
+                    ),
                   ),
                 ),
-              ),
+              ],
             ),
           ),
         );
@@ -2091,7 +2415,7 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
         (p) => p.userId == owner,
         orElse: () => gameSession.players.first,
       );
-      final playerColor = Color(ownerPlayer.playerColor ?? AppColors.gamePrimary.value);
+      final playerColor = _getPlayerColor(ownerPlayer);
       gradientColors = [
         playerColor.withOpacity(0.9),
         playerColor.withOpacity(0.6),
@@ -2111,7 +2435,6 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
       borderColor = AppColors.warning;
       borderWidth = 2;
       elevation = 6;
-      print('DEBUG: Cell $cellKey has pending pronunciation - showing warning color');
     }
     
     // Highlight valid column for current player
@@ -2150,12 +2473,7 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
     
     return GestureDetector(
       onTap: (widget.isTeacherMode || _isProcessingSelection) ? null : () {
-        print('DEBUG: Cell tapped! Row: $row, Col: $col');
-        print('DEBUG: Teacher mode: ${widget.isTeacherMode}');
-        print('DEBUG: Game state available: ${_currentGameState != null}');
         if (_currentGameState != null) {
-          print('DEBUG: Current turn player: ${_currentGameState!.currentTurnPlayerId}');
-          print('DEBUG: Current dice value: ${_currentGameState!.currentDiceValue}');
         }
         HapticFeedback.lightImpact(); // Immediate feedback
         _selectCell(row, col);
@@ -2248,7 +2566,24 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
     final int diceValue = gameStateDiceValue ?? 0; // 0 means no dice rolled yet
     
     if (widget.isTeacherMode) {
-      return _buildTeacherControls();
+      return Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Center(
+          child: SizedBox(
+            width: 200,
+            child: ElevatedButton.icon(
+              onPressed: _endGame,
+              icon: const Icon(Icons.stop, size: 18),
+              label: const Text('End Game'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.gamePrimary,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+              ),
+            ),
+          ),
+        ),
+      );
     } else {
       return _buildStudentControls(diceValue, _isMyTurn);
     }
@@ -2259,72 +2594,105 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
     return Container();
   }
 
-  void _showQuitDialog() {
-    showDialog(
+  Future<void> _endGame() async {
+    if (_currentGameState == null || _currentGameSession == null) return;
+    
+    // Check if game has a winner (completed)
+    final winnerId = _currentGameState!.checkForWinner();
+    final hasWinner = winnerId != null;
+    
+    final shouldEnd = await showDialog<bool>(
       context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text(
-            'Quit Game?',
-            style: TextStyle(fontWeight: FontWeight.bold),
+      builder: (context) => AlertDialog(
+        title: const Text('End Game'),
+        content: Text(
+          hasWinner 
+            ? 'End this completed game? Player stats will be updated.'
+            : 'End this game early? No stats will be updated.'
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
           ),
-          content: const Text(
-            'Are you sure you want to quit? Your progress will not be saved.',
-            style: TextStyle(fontSize: 16),
-          ),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              style: TextButton.styleFrom(
-                foregroundColor: AppColors.textSecondary,
-              ),
-              child: const Text(
-                'Cancel',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
-              ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: TextButton.styleFrom(
+              foregroundColor: Colors.red,
             ),
-            ElevatedButton(
-              onPressed: () async {
-                Navigator.of(context).pop(); // Close dialog
-                
-                // If student is leaving, remove them from the game
-                if (!widget.isTeacherMode && _currentGameSession != null) {
-                  try {
-                    print('👋 STUDENT LEAVING: Removing ${widget.user.displayName} from game ${_currentGameSession!.gameId}');
-                    await GameSessionService.leaveGameSession(
-                      gameId: _currentGameSession!.gameId,
-                      playerId: widget.user.id,
-                    );
-                    print('✅ STUDENT LEFT: Successfully removed from game');
-                  } catch (e) {
-                    print('❌ Error leaving game: $e');
-                    // Don't block the navigation if leave fails
-                  }
-                }
-                
-                // Navigate to home screen
-                Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.error,
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-              ),
-              child: const Text(
-                'Quit Game',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-              ),
-            ),
-          ],
-        );
-      },
+            child: const Text('End Game'),
+          ),
+        ],
+      ),
     );
+
+    if (shouldEnd == true && context.mounted) {
+      try {
+        final gameSession = _currentGameSession!;
+        
+        if (hasWinner) {
+          // Game completed with winner - update stats
+          for (final player in gameSession.players) {
+            final wordsRead = _currentGameState!.getPlayerScore(player.userId);
+            final isWinner = player.userId == winnerId;
+            await FirestoreService.updateStudentStats(
+              studentId: player.userId,
+              wordsRead: wordsRead,
+              won: isWinner,
+            );
+          }
+          
+          // End game session with winner
+          await GameSessionService.endGameSession(
+            gameId: gameSession.gameId,
+            winnerId: winnerId,
+          );
+          
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Game completed! ${_getPlayerName(winnerId)} wins. Stats updated.'),
+                backgroundColor: Colors.green,
+                duration: const Duration(seconds: 3),
+              ),
+            );
+          }
+        } else {
+          // Game ended early - no stats update
+          await GameSessionService.endGameSession(
+            gameId: gameSession.gameId,
+            winnerId: null,
+          );
+          
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Game ended early. No stats updated.'),
+                backgroundColor: Colors.orange,
+                duration: Duration(seconds: 3),
+              ),
+            );
+          }
+        }
+        
+        // Return to admin dashboard
+        if (mounted) {
+          Navigator.of(context).pop();
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error ending game: $e'),
+              backgroundColor: Colors.red,
+              duration: const Duration(seconds: 3),
+            ),
+          );
+        }
+      }
+    }
   }
+
 
   Widget _buildTeacherControls() {
     return LayoutBuilder(
@@ -2403,8 +2771,12 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
             Center(
               child: ElevatedButton(
                 onPressed: () {
-                  Navigator.of(context).pop(); // Close dialog
-                  Navigator.of(context).popUntil((route) => route.isFirst); // Go to home
+                  if (!mounted) return;
+                  final navigator = Navigator.of(context);
+                  navigator.pop(); // Close dialog
+                  if (mounted) {
+                    navigator.popUntil((route) => route.isFirst); // Go to home
+                  }
                 },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.primary,
@@ -2459,6 +2831,165 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
         content: Text('Dice is already rolling!'),
         duration: Duration(seconds: 1),
         backgroundColor: Colors.grey,
+      ),
+    );
+  }
+
+  void _showPendingPronunciationMessage() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Wait for teacher to approve or reject your word before rolling again!'),
+        duration: Duration(seconds: 2),
+        backgroundColor: Colors.orange,
+      ),
+    );
+  }
+
+  void _showAlreadyRolledMessage() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('You have already rolled the dice this turn! Select a word or wait for next turn.'),
+        duration: Duration(seconds: 2),
+        backgroundColor: Colors.red,
+      ),
+    );
+  }
+
+  void _showWaitingForPlayersMessage() {
+    final currentPlayers = _currentGameSession?.players.length ?? 0;
+    final maxPlayers = _currentGameSession?.maxPlayers ?? 2;
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Waiting for more players to join ($currentPlayers/$maxPlayers). Game will start when ready!',
+        ),
+        duration: const Duration(seconds: 3),
+        backgroundColor: AppColors.mediumBlue,
+      ),
+    );
+  }
+
+  Widget _buildOwnerIndicator(String cellKey, double cellSize) {
+    final cellOwner = _currentGameState?.getCellOwner(cellKey);
+    if (cellOwner == null) return Container();
+    
+    // Find the player in the game session
+    final gameSession = _currentGameSession ?? widget.gameSession;
+    final ownerPlayer = gameSession.players
+        .where((p) => p.userId == cellOwner)
+        .firstOrNull;
+    
+    if (ownerPlayer == null) return Container();
+    
+    return Container(
+      width: cellSize * 0.28,
+      height: cellSize * 0.28,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        shape: BoxShape.circle,
+        border: Border.all(
+          color: _getPlayerColor(ownerPlayer),
+          width: 2,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.2),
+            blurRadius: 2,
+            offset: Offset(0, 1),
+          ),
+        ],
+      ),
+      child: Center(
+        child: Text(
+          ownerPlayer.displayName.substring(0, 1).toUpperCase(),
+          style: TextStyle(
+            fontSize: cellSize * 0.18, // Larger for better visibility
+            fontWeight: FontWeight.w900,
+            color: Colors.white,
+            shadows: [
+              Shadow(
+                color: Colors.black.withOpacity(0.7),
+                offset: const Offset(1, 1),
+                blurRadius: 2,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTurnIndicator(double safeHeight) {
+    if (_currentGameState == null) {
+      return const SizedBox.shrink();
+    }
+    
+    // Check if game is over
+    final winnerId = _currentGameState!.checkForWinner();
+    if (_gameEnded || winnerId != null) {
+      // Game is over - show winner banner
+      final winnerPlayer = widget.gameSession.players
+          .where((p) => p.userId == winnerId)
+          .firstOrNull;
+      
+      if (winnerPlayer == null) return const SizedBox.shrink();
+      
+      final winnerColor = _getPlayerColor(winnerPlayer);
+      
+      return Container(
+        height: safeHeight * 0.05,
+        width: double.infinity,
+        decoration: BoxDecoration(
+          color: winnerColor.withOpacity(0.2),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: winnerColor, width: 2),
+        ),
+        child: Center(
+          child: Text(
+            "🎉 Game Over - ${winnerPlayer.displayName} Wins! 🎉",
+            style: TextStyle(
+              color: winnerColor,
+              fontSize: safeHeight * 0.025,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+      );
+    }
+    
+    // Game still in progress - show current turn
+    if (_currentGameState!.currentTurnPlayerId == null) {
+      return const SizedBox.shrink();
+    }
+    
+    final sessionPlayer = widget.gameSession.players
+        .where((p) => p.userId == _currentGameState!.currentTurnPlayerId)
+        .firstOrNull;
+    
+    if (sessionPlayer == null) return const SizedBox.shrink();
+    
+    // Get consistent player color using the same logic as owned squares
+    final playerColor = _getPlayerColor(sessionPlayer);
+    
+    // SIMPLE turn indicator - just the name
+    return Container(
+      height: safeHeight * 0.05, // Normal size
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: playerColor.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: playerColor, width: 2),
+      ),
+      child: Center(
+        child: Text(
+          "${sessionPlayer.displayName}'s Turn",
+          style: TextStyle(
+            color: playerColor,
+            fontSize: safeHeight * 0.025,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
       ),
     );
   }

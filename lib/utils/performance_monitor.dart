@@ -83,7 +83,6 @@ class PerformanceMonitor {
     } finally {
       final duration = stopTimer(operationName);
       if (duration != null) {
-        print('⏱️ $operationName took ${duration.inMilliseconds}ms');
       }
     }
   }
@@ -92,20 +91,10 @@ class PerformanceMonitor {
   static void printReport() {
     final stats = getAllStats();
     if (stats.isEmpty) {
-      print('📊 No performance data available');
       return;
     }
 
-    print('\n📊 Performance Report');
-    print('=' * 50);
     for (final stat in stats.values) {
-      print('${stat.operationName}:');
-      print('  Count: ${stat.count}');
-      print('  Average: ${stat.averageMs.toStringAsFixed(1)}ms');
-      print('  Median: ${stat.medianMs.toStringAsFixed(1)}ms');
-      print('  Min: ${stat.minMs.toStringAsFixed(1)}ms');
-      print('  Max: ${stat.maxMs.toStringAsFixed(1)}ms');
-      print('');
     }
   }
 }

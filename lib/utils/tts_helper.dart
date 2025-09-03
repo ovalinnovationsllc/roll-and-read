@@ -8,21 +8,15 @@ class TTSHelper {
       final FlutterTts tts = FlutterTts();
       List<dynamic> voices = await tts.getVoices;
       
-      print('===== Available TTS Voices =====');
-      print('Total voices found: ${voices.length}');
       if (!kIsWeb) {
-        print('Platform: ${Platform.operatingSystem}');
       } else {
-        print('Platform: Web');
       }
-      print('');
       
       // Filter for English voices
       final englishVoices = voices.where((voice) => 
         voice['locale']?.toString().contains('en') ?? false
       ).toList();
       
-      print('English voices: ${englishVoices.length}');
       
       // Look for Siri voices on iOS
       if (!kIsWeb && Platform.isIOS) {
@@ -30,24 +24,16 @@ class TTSHelper {
           voice['name']?.toString().toLowerCase().contains('siri') ?? false
         ).toList();
         
-        print('\n--- Siri Voices ---');
         for (var voice in siriVoices) {
-          print('Name: ${voice['name']}');
-          print('Locale: ${voice['locale']}');
-          print('');
         }
       }
       
       // Show first 10 English voices for reference
-      print('\n--- Sample English Voices ---');
       for (var i = 0; i < englishVoices.length && i < 10; i++) {
         final voice = englishVoices[i];
-        print('${i + 1}. Name: ${voice['name']}, Locale: ${voice['locale']}');
       }
       
-      print('================================');
     } catch (e) {
-      print('Error getting voices: $e');
     }
   }
   
@@ -78,7 +64,6 @@ class TTSHelper {
     for (final voiceName in siriVoiceNames) {
       try {
         await tts.setVoice({"name": voiceName, "locale": "en-US"});
-        print('Successfully set iOS voice to: $voiceName');
         return true;
       } catch (e) {
         // Try next voice
@@ -86,7 +71,6 @@ class TTSHelper {
       }
     }
     
-    print('Could not set any preferred iOS voice, using system default');
     return false;
   }
 }

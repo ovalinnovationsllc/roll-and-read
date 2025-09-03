@@ -5,7 +5,6 @@ class GameStateService {
   // Initialize game state when a game starts
   static Future<void> initializeGameState(String gameId, List<String> playerIds) async {
     try {
-      print('DEBUG: Initializing game state for $gameId with players: $playerIds');
       
       // Create maps for player data
       final Map<String, Set<String>> playerCompletedCells = <String, Set<String>>{};
@@ -24,13 +23,9 @@ class GameStateService {
         simultaneousPlay: false, // Turn-based play with teacher validation
       );
       
-      print('DEBUG: Created game state model, now saving to Firebase');
       await FirestoreService.saveGameState(gameState);
-      print('DEBUG: Game state saved successfully to Firebase');
       
     } catch (e) {
-      print('DEBUG: Error in initializeGameState: $e');
-      print('DEBUG: Error type: ${e.runtimeType}');
       rethrow;
     }
   }
@@ -86,25 +81,19 @@ class GameStateService {
     required String cellKey,
     required bool isCompleted,
   }) async {
-    print('DEBUG: toggleCell called with gameId: $gameId, playerId: $playerId, cellKey: $cellKey, isCompleted: $isCompleted');
     
     try {
       final gameState = await FirestoreService.getGameState(gameId.toUpperCase());
       if (gameState == null) {
-        print('DEBUG: Game state not found!');
         return;
       }
       
-      print('DEBUG: Game state found, updating...');
       final updatedState = isCompleted 
           ? gameState.markCellCompleted(playerId, cellKey)
           : gameState; // For simplicity, just mark completed for local storage
       
-      print('DEBUG: Updating game state...');
       await FirestoreService.updateGameState(updatedState);
-      print('DEBUG: Game state update completed successfully');
     } catch (e) {
-      print('DEBUG: Error in toggleCell: $e');
     }
   }
 
@@ -127,50 +116,32 @@ class GameStateService {
     required String gameId,
     required List<String> playerIds,
   }) async {
-    print('🔄 DEBUG: switchToNextTurn called with gameId: $gameId, playerIds: $playerIds');
     
     final gameState = await FirestoreService.getGameState(gameId.toUpperCase());
     if (gameState == null) {
-      print('❌ DEBUG: No game state found for $gameId');
       return;
     }
     
     if (playerIds.isEmpty) {
-      print('❌ DEBUG: No player IDs provided');
       return;
     }
     
-    print('🎮 DEBUG: Current game state before turn switch:');
-    print('  currentTurnPlayerId: ${gameState.currentTurnPlayerId}');
-    print('  simultaneousPlay: ${gameState.simultaneousPlay}');
-    print('  available playerIds: $playerIds');
     
     final currentIndex = playerIds.indexOf(gameState.currentTurnPlayerId ?? '');
     final nextIndex = (currentIndex + 1) % playerIds.length;
     final nextPlayerId = playerIds[nextIndex];
     
-    print('🔄 DEBUG: Turn calculation:');
-    print('  currentIndex: $currentIndex');
-    print('  nextIndex: $nextIndex'); 
-    print('  nextPlayerId: $nextPlayerId');
     
     final updatedGameState = gameState.switchToNextTurn(playerIds);
-    print('🎮 DEBUG: Updated game state after switchToNextTurn:');
-    print('  new currentTurnPlayerId: ${updatedGameState.currentTurnPlayerId}');
-    print('  new currentDiceValue: ${updatedGameState.currentDiceValue}');
-    print('  old currentDiceValue: ${gameState.currentDiceValue}');
     
     await FirestoreService.updateGameState(updatedGameState);
-    print('✅ DEBUG: Switched turn from ${gameState.currentTurnPlayerId} to ${updatedGameState.currentTurnPlayerId}');
   }
 
   // Delete game state when game ends
   static Future<void> deleteGameState(String gameId) async {
     try {
       await FirestoreService.deleteGameState(gameId.toUpperCase());
-      print('DEBUG: Deleted game state for $gameId');
     } catch (e) {
-      print('DEBUG: Error deleting game state: $e');
     }
   }
 
@@ -191,13 +162,11 @@ class GameStateService {
     required String word,
     required List<String> playerIds,
   }) async {
-    print('DEBUG: startPronunciationAttemptAndSwitchTurn - creating pronunciation attempt');
     
     try {
       // Get current game state
       final gameState = await getGameState(gameId);
       if (gameState == null) {
-        print('DEBUG: Game state not found');
         return;
       }
       
@@ -220,9 +189,7 @@ class GameStateService {
       );
       
       await FirestoreService.updateGameState(updatedState);
-      print('DEBUG: Pronunciation attempt created for $playerName - word: "$word"');
     } catch (e) {
-      print('DEBUG: Error in startPronunciationAttemptAndSwitchTurn: $e');
     }
   }
   
@@ -233,7 +200,6 @@ class GameStateService {
     required List<String> playerIds, // Add playerIds parameter for turn switching
   }) async {
     try {
-      print('✅ Teacher approved pronunciation for cell: $cellKey');
       
       // Get current game state
       final gameState = await getGameState(gameId);
@@ -242,6 +208,17 @@ class GameStateService {
       // Get the pronunciation attempt
       final pronunciationAttempt = gameState.pendingPronunciations[cellKey];
       if (pronunciationAttempt == null) return;
+      
+      // Check if this was a steal attempt (cell was owned by another player)
+      String? previousOwnerId;
+      String? previousOwnerName;
+      final cellOwner = gameState.getCellOwner(cellKey);
+      if (cellOwner != null && cellOwner != pronunciationAttempt.playerId) {
+        previousOwnerId = cellOwner;
+        // We can't easily get the player name here since we don't have game session access
+        // The teacher monitor will handle name resolution
+        previousOwnerName = null; // Will be resolved in the UI
+      }
       
       // Create log entry for approved pronunciation
       final logEntry = PronunciationLogEntry(
@@ -252,6 +229,8 @@ class GameStateService {
         attemptTime: pronunciationAttempt.startTime,
         resolvedTime: DateTime.now(),
         approved: true,
+        previousOwnerId: previousOwnerId,
+        previousOwnerName: previousOwnerName,
       );
       
       // Remove from pending pronunciations, mark cell as completed, and add to log
@@ -264,13 +243,10 @@ class GameStateService {
           );
       
       await FirestoreService.updateGameState(updatedState);
-      print('✅ Pronunciation approved and point awarded to ${pronunciationAttempt.playerName}');
       
       // Switch to next turn after approval
       await switchToNextTurn(gameId: gameId, playerIds: playerIds);
-      print('🔄 Switched to next player turn after approval');
     } catch (e) {
-      print('❌ Error approving pronunciation: $e');
       rethrow;
     }
   }
@@ -281,7 +257,6 @@ class GameStateService {
     required List<String> playerIds, // Add playerIds parameter for turn switching
   }) async {
     try {
-      print('❌ Teacher rejected pronunciation for cell: $cellKey');
       
       // Get current game state
       final gameState = await getGameState(gameId);
@@ -290,6 +265,15 @@ class GameStateService {
       // Get the pronunciation attempt
       final pronunciationAttempt = gameState.pendingPronunciations[cellKey];
       if (pronunciationAttempt == null) return;
+      
+      // Check if this was a steal attempt (cell was owned by another player)
+      String? previousOwnerId;
+      String? previousOwnerName;
+      final cellOwner = gameState.getCellOwner(cellKey);
+      if (cellOwner != null && cellOwner != pronunciationAttempt.playerId) {
+        previousOwnerId = cellOwner;
+        previousOwnerName = null; // Will be resolved in the UI
+      }
       
       // Create log entry for rejected pronunciation
       final logEntry = PronunciationLogEntry(
@@ -300,6 +284,8 @@ class GameStateService {
         attemptTime: pronunciationAttempt.startTime,
         resolvedTime: DateTime.now(),
         approved: false,
+        previousOwnerId: previousOwnerId,
+        previousOwnerName: previousOwnerName,
       );
       
       // Remove from pending pronunciations and add to log (no point awarded)
@@ -314,13 +300,10 @@ class GameStateService {
       );
       
       await FirestoreService.updateGameState(updatedState);
-      print('❌ Pronunciation rejected');
       
       // Switch to next turn after rejection
       await switchToNextTurn(gameId: gameId, playerIds: playerIds);
-      print('🔄 Switched to next player turn after rejection');
     } catch (e) {
-      print('❌ Error rejecting pronunciation: $e');
       rethrow;
     }
   }

@@ -1,12 +1,17 @@
 import 'package:flutter/material.dart';
 import '../config/app_colors.dart';
+import '../widgets/player_avatar.dart';
 import '../models/student_model.dart';
 import '../models/user_model.dart';
 import '../services/firestore_service.dart';
 import '../services/session_service.dart';
+import '../services/game_session_service.dart';
+import 'clean_multiplayer_screen.dart';
 
 class StudentSelectionForJoin extends StatefulWidget {
-  const StudentSelectionForJoin({super.key});
+  final String? gameCode;
+  
+  const StudentSelectionForJoin({super.key, this.gameCode});
 
   @override
   State<StudentSelectionForJoin> createState() => _StudentSelectionForJoinState();
@@ -15,9 +20,27 @@ class StudentSelectionForJoin extends StatefulWidget {
 class _StudentSelectionForJoinState extends State<StudentSelectionForJoin> {
   Future<List<StudentModel>> _getStudents() async {
     try {
-      return await FirestoreService.getAllActiveStudents();
+      final allStudents = await FirestoreService.getAllActiveStudents();
+      
+      // If no game code provided, show all students (backward compatibility)
+      if (widget.gameCode == null) {
+        return allStudents;
+      }
+      
+      // Get the game session to find out which teacher created it
+      final gameSession = await GameSessionService.getGameSession(widget.gameCode!);
+      if (gameSession == null) {
+        // Game not found, show all students
+        return allStudents;
+      }
+      
+      // Filter students to only show those belonging to the teacher who created the game
+      final teachersStudents = allStudents
+          .where((student) => student.teacherId == gameSession.createdBy)
+          .toList();
+      
+      return teachersStudents;
     } catch (e) {
-      print('Error getting students: $e');
       return [];
     }
   }
@@ -34,25 +57,79 @@ class _StudentSelectionForJoinState extends State<StudentSelectionForJoin> {
         avatarUrl: student.avatarUrl,
         isAdmin: false,
         createdAt: student.createdAt,
+        teacherId: student.teacherId, // Preserve the teacher ID
         gamesPlayed: student.gamesPlayed,
         gamesWon: 0, // Default for students
-        wordsCorrect: student.wordsRead, // Map wordsRead to wordsCorrect
+        wordsRead: student.wordsRead,
       );
       
       // Save the student user to session so it can be used in the game
       await SessionService.saveUser(studentUser);
       
-      // Navigate to student join game page for simple game code entry
-      // Student has already been selected, so they just need to enter the game code
       if (mounted) {
-        Navigator.pushNamed(context, '/student-join-game');
+        if (widget.gameCode != null) {
+          // We already have a game code, try to join directly
+          await _joinGameDirectly(studentUser, widget.gameCode!);
+        } else {
+          // Navigate to student join game page for game code entry
+          Navigator.pushNamed(context, '/student-join-game');
+        }
       }
     } catch (e) {
-      print('Error selecting student: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Error selecting student: $e'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _joinGameDirectly(UserModel user, String gameCode) async {
+    try {
+      // Get the game session
+      final game = await GameSessionService.getGameSession(gameCode);
+      if (game == null) {
+        throw Exception('Game not found.');
+      }
+
+      if (game.players.length >= game.maxPlayers) {
+        throw Exception('This game is full.');
+      }
+
+      // Join the game
+      final updatedGame = await GameSessionService.joinGameSession(
+        gameId: gameCode,
+        user: user,
+      );
+
+      if (updatedGame == null) {
+        throw Exception('Failed to join game.');
+      }
+
+      // Save the updated game session
+      await SessionService.saveGameSession(updatedGame);
+
+      // Navigate to the multiplayer game
+      if (mounted) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (context) => CleanMultiplayerScreen(
+              user: user,
+              gameSession: updatedGame,
+              isTeacherMode: false,
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error joining game: $e'),
             backgroundColor: AppColors.error,
           ),
         );
@@ -90,7 +167,7 @@ class _StudentSelectionForJoinState extends State<StudentSelectionForJoin> {
                   ),
                   const SizedBox(height: 16),
                   Text(
-                    'Tap your name to join a game',
+                    'Who are you?',
                     style: TextStyle(
                       fontSize: isTablet ? 24 : 18,
                       fontWeight: FontWeight.bold,
@@ -100,7 +177,7 @@ class _StudentSelectionForJoinState extends State<StudentSelectionForJoin> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'After selecting your name, you\'ll enter the game code from your teacher',
+                    'Tap your name to join the game',
                     style: TextStyle(
                       fontSize: isTablet ? 16 : 14,
                       color: AppColors.textSecondary,
@@ -113,7 +190,8 @@ class _StudentSelectionForJoinState extends State<StudentSelectionForJoin> {
             
             // Student Grid
             Expanded(
-              child: FutureBuilder<List<StudentModel>>(
+              child: Center(
+                child: FutureBuilder<List<StudentModel>>(
                 future: _getStudents(),
                 builder: (context, snapshot) {
                   if (snapshot.connectionState == ConnectionState.waiting) {
@@ -170,8 +248,11 @@ class _StudentSelectionForJoinState extends State<StudentSelectionForJoin> {
                     );
                   }
                   
-                  return Center(
-                    child: Padding(
+                  return SingleChildScrollView(
+                    child: Container(
+                      constraints: BoxConstraints(
+                        maxWidth: isTablet ? 800 : 600,
+                      ),
                       padding: EdgeInsets.all(isTablet ? 32 : 20),
                       child: Wrap(
                         alignment: WrapAlignment.center,
@@ -188,40 +269,6 @@ class _StudentSelectionForJoinState extends State<StudentSelectionForJoin> {
                     ),
                   );
                 },
-              ),
-            ),
-            
-            // Footer instruction
-            Container(
-              padding: EdgeInsets.all(isTablet ? 24 : 16),
-              child: Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: AppColors.primary.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: AppColors.primary.withOpacity(0.2),
-                  ),
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.info_outline,
-                      color: AppColors.primary,
-                      size: isTablet ? 24 : 20,
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        'Select your name, then enter the game code your teacher gives you!',
-                        style: TextStyle(
-                          fontSize: isTablet ? 16 : 14,
-                          color: AppColors.primary,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                  ],
                 ),
               ),
             ),
@@ -239,12 +286,12 @@ class _StudentSelectionForJoinState extends State<StudentSelectionForJoin> {
           color: Colors.white,
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
-            color: student.playerColor.withOpacity(0.3),
+            color: student.playerColor.withOpacity(0.4),
             width: 3,
           ),
           boxShadow: [
             BoxShadow(
-              color: student.playerColor.withOpacity(0.2),
+              color: student.playerColor.withOpacity(0.25),
               blurRadius: 15,
               offset: const Offset(0, 8),
             ),
@@ -253,40 +300,35 @@ class _StudentSelectionForJoinState extends State<StudentSelectionForJoin> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            // Avatar with colored background
-            Container(
-              width: isTablet ? 80 : 60,
-              height: isTablet ? 80 : 60,
-              decoration: BoxDecoration(
-                color: student.playerColor.withOpacity(0.2),
-                borderRadius: BorderRadius.circular(15),
-                border: Border.all(
-                  color: student.playerColor,
-                  width: 2,
-                ),
-              ),
-              child: Center(
-                child: Text(
-                  student.avatarUrl,
-                  style: TextStyle(
-                    fontSize: isTablet ? 40 : 32,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
+            // Enhanced Player Avatar
+            PlayerAvatar(
+              displayName: student.displayName,
+              avatarUrl: student.avatarUrl,
+              playerColor: student.playerColor,
+              size: isTablet ? 80 : 60,
+              showName: false, // We'll show the name separately below for better layout
             ),
             
-            const SizedBox(height: 12),
+            const SizedBox(height: 8),
             
-            // Name
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
+            // Enhanced name display with color accent
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              margin: const EdgeInsets.symmetric(horizontal: 8),
+              decoration: BoxDecoration(
+                color: student.playerColor.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: student.playerColor.withOpacity(0.3),
+                  width: 1,
+                ),
+              ),
               child: Text(
                 student.displayName,
                 style: TextStyle(
-                  fontSize: isTablet ? 18 : 14,
+                  fontSize: isTablet ? 16 : 14,
                   fontWeight: FontWeight.bold,
-                  color: AppColors.textPrimary,
+                  color: student.playerColor,
                 ),
                 textAlign: TextAlign.center,
                 overflow: TextOverflow.ellipsis,

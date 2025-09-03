@@ -227,9 +227,13 @@ class GameSessionModel {
     List<PlayerInGame> parsePlayersList(dynamic playersData) {
       if (playersData == null) return [];
       if (playersData is! List) return [];
-      return playersData
-          .map((p) => PlayerInGame.fromMap(p as Map<String, dynamic>))
-          .toList();
+      
+      return playersData.asMap().entries.map((entry) {
+        final playerIndex = entry.key;
+        final playerData = Map<String, dynamic>.from(entry.value);
+        
+        return PlayerInGame.fromMap(playerData);
+      }).toList();
     }
 
     List<List<String>>? parseWordGrid(dynamic gridData, Map<String, dynamic> map) {
@@ -320,7 +324,7 @@ class GameSessionModel {
 
   // Helper methods
   bool get isFull => players.length >= maxPlayers;
-  bool get canStart => players.length >= 1; // Allow 1 or 2 players
+  bool get canStart => players.length >= 1; // Allow single-player games
   bool get isActive => status == GameStatus.inProgress;
   bool get isWaiting => status == GameStatus.waitingForPlayers;
   

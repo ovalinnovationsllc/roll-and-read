@@ -60,11 +60,11 @@ class _StudentGameLobbyPageState extends State<StudentGameLobbyPage> {
       createdBy: studentGame.teacherId,
       gameName: 'Student Game: ${studentGame.gameCode}',
       playerIds: studentGame.players.map((p) => p.playerId).toList(),
-      players: studentGame.players.map((p) => PlayerInGame(
-        userId: p.playerId,
-        displayName: p.playerName,
-        emailAddress: '${p.playerId}@studentgame.local', // Fake email for student games
-        joinedAt: p.joinedAt,
+      players: studentGame.players.asMap().entries.map((entry) => PlayerInGame(
+        userId: entry.value.playerId,
+        displayName: entry.value.playerName,
+        emailAddress: '${entry.value.playerId}@studentgame.local', // Fake email for student games
+        joinedAt: entry.value.joinedAt,
         isReady: true, // Student players are ready once they join
       )).toList(),
       status: studentGame.isActive 

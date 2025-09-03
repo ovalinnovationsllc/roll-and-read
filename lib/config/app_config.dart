@@ -11,7 +11,6 @@ class AppConfig {
         }
       }
     } catch (e) {
-      print('Error loading API key from environment: $e');
     }
     return '';
   }
@@ -25,7 +24,6 @@ class AppConfig {
         if (mode == 'true') return true;
       }
     } catch (e) {
-      print('Error loading demo mode setting: $e');
     }
     // Default to demo mode if no API key is available
     return geminiApiKey.isEmpty;
@@ -44,11 +42,8 @@ class AppConfig {
         }
       }
     } catch (e) {
-      print('Error loading Firebase API key: $e');
     }
     // Environment file not loaded - show helpful error
-    print('WARNING: Firebase API key not found. App may not work correctly.');
-    print('Please ensure .env file exists and restart the app.');
     return '';
   }
 
@@ -61,7 +56,6 @@ class AppConfig {
         }
       }
     } catch (e) {
-      print('Error loading Firebase auth domain: $e');
     }
     return '';
   }
@@ -75,7 +69,6 @@ class AppConfig {
         }
       }
     } catch (e) {
-      print('Error loading Firebase project ID: $e');
     }
     return '';
   }
@@ -89,7 +82,6 @@ class AppConfig {
         }
       }
     } catch (e) {
-      print('Error loading Firebase storage bucket: $e');
     }
     return '';
   }
@@ -103,7 +95,6 @@ class AppConfig {
         }
       }
     } catch (e) {
-      print('Error loading Firebase messaging sender ID: $e');
     }
     return '';
   }
@@ -117,7 +108,6 @@ class AppConfig {
         }
       }
     } catch (e) {
-      print('Error loading Firebase app ID: $e');
     }
     return '';
   }

@@ -75,7 +75,6 @@ class _RollAndReadGameState extends State<RollAndReadGame> {
       await _flutterTts.setVolume(1.0);
       await _flutterTts.setPitch(1.0);
     } catch (e) {
-      print('TTS initialization error: $e');
     }
   }
 
@@ -89,7 +88,6 @@ class _RollAndReadGameState extends State<RollAndReadGame> {
     try {
       await _flutterTts.speak(word);
     } catch (e) {
-      print('Error speaking word: $e');
     }
   }
 

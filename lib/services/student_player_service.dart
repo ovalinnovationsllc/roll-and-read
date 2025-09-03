@@ -33,10 +33,8 @@ class StudentPlayerService {
           .doc(profileId)
           .set(profile.toMap());
       
-      print('Created student player profile for $playerName with PIN: ${profile.simplePin}');
       return profile;
     } catch (e) {
-      print('Error creating player profile: $e');
       return null;
     }
   }
@@ -59,7 +57,6 @@ class StudentPlayerService {
       }
       return null;
     } catch (e) {
-      print('Error finding player profile: $e');
       return null;
     }
   }
@@ -77,7 +74,6 @@ class StudentPlayerService {
       }
       return null;
     } catch (e) {
-      print('Error getting player profile: $e');
       return null;
     }
   }
@@ -111,10 +107,8 @@ class StudentPlayerService {
           .doc(profileId)
           .update(updates);
       
-      print('Updated profile stats for $profileId');
       return true;
     } catch (e) {
-      print('Error updating profile stats: $e');
       return false;
     }
   }
@@ -144,7 +138,6 @@ class StudentPlayerService {
           .map((doc) => StudentPlayerProfile.fromMap(doc.data()))
           .toList();
     } catch (e) {
-      print('Error getting recent profiles: $e');
       return [];
     }
   }

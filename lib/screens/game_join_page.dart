@@ -3,6 +3,7 @@ import '../config/app_colors.dart';
 import '../services/firestore_service.dart';
 import '../services/game_session_service.dart';
 import '../services/session_service.dart';
+import '../utils/firebase_utils.dart';
 import '../models/user_model.dart';
 import '../models/game_session_model.dart';
 import '../models/player_colors.dart';
@@ -42,7 +43,7 @@ class _GameJoinPageState extends State<GameJoinPage> {
       if (savedUser != null) {
         setState(() {
           _emailController.text = savedUser.emailAddress;
-          _pinController.text = savedUser.pin;
+          _pinController.text = savedUser.pin ?? '';
         });
       }
     } catch (e) {
@@ -90,6 +91,7 @@ class _GameJoinPageState extends State<GameJoinPage> {
     _gameIdController.dispose();
     super.dispose();
   }
+
 
   void _onGameSelected(String? gameId) {
     if (gameId == null) {
@@ -143,6 +145,9 @@ class _GameJoinPageState extends State<GameJoinPage> {
         return;
       }
       
+      // Wait for Firebase to be ready before attempting login
+      await FirebaseUtils.waitForFirebaseReady();
+      
       // First, authenticate the user
       final user = await FirestoreService.getUserByEmail(email);
       
@@ -173,15 +178,21 @@ class _GameJoinPageState extends State<GameJoinPage> {
         return;
       }
 
+      // Verify that this student belongs to the teacher who created the game
+      if (user.teacherId != gameSession.createdBy) {
+        setState(() {
+          _errorMessage = 'You can only join games created by your teacher.';
+          _isLoading = false;
+        });
+        return;
+      }
+
       // Try to join the game with selected color
       try {
-        print('🎓 STUDENT JOIN: Starting join process for game ${gameId}');
-        print('🎓 STUDENT JOIN: User ${user.displayName}, Color ${_selectedColor?.value}');
         
         // Update user with selected color
         final userWithColor = user.copyWith(playerColor: _selectedColor);
         
-        print('🎓 STUDENT JOIN: About to call GameSessionService.joinGameSession');
         final updatedGame = await GameSessionService.joinGameSession(
           gameId: gameId,
           user: userWithColor,
@@ -212,7 +223,11 @@ class _GameJoinPageState extends State<GameJoinPage> {
 
     } catch (e) {
       setState(() {
-        _errorMessage = 'An error occurred. Please try again.';
+        if (e.toString().contains('Firebase initialization timeout')) {
+          _errorMessage = 'Connection timeout. Please check your internet connection and try again.';
+        } else {
+          _errorMessage = 'An error occurred. Please try again.';
+        }
         _isLoading = false;
       });
     }
@@ -379,7 +394,6 @@ class _GameJoinPageState extends State<GameJoinPage> {
                         height: isTablet ? 100 : 80,
                         fit: BoxFit.contain,
                         errorBuilder: (context, error, stackTrace) {
-                          print('Error loading dice_blue.png: $error');
                           return Container(
                             width: isTablet ? 100 : 80,
                             height: isTablet ? 100 : 80,

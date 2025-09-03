@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'firebase_options.dart';
 import 'dart:async';
 import 'utils/safe_print.dart';
@@ -81,16 +82,37 @@ Future<void> _initializeApp() async {
     // Initialize Firebase FIRST
     try {
       safePrint('🔥 Initializing Firebase...');
-      await Firebase.initializeApp(
-        options: DefaultFirebaseOptions.currentPlatform,
-      );
+      safePrint('🔥 Platform: ${kIsWeb ? 'Web' : defaultTargetPlatform.toString()}');
+      
+      try {
+        await Firebase.initializeApp(
+          options: DefaultFirebaseOptions.currentPlatform,
+        );
+      } catch (e) {
+        if (e.toString().contains('duplicate-app')) {
+          safePrint('✅ Firebase already initialized (duplicate app error ignored)');
+        } else {
+          rethrow;
+        }
+      }
       safePrint('✅ Firebase initialized successfully');
       
-      // Mark Firebase as ready for FirestoreService
-      FirestoreService.setFirebaseReady(true);
-      safePrint('✅ FirestoreService marked as ready');
-    } catch (e) {
+      // Test Firebase connection
+      try {
+        final firestore = FirebaseFirestore.instance;
+        await firestore.settings; // This will throw if Firestore isn't available
+        safePrint('✅ Firestore connection verified');
+        
+        // Mark Firebase as ready for FirestoreService
+        FirestoreService.setFirebaseReady(true);
+        safePrint('✅ FirestoreService marked as ready');
+      } catch (firestoreError) {
+        safePrint('❌ Firestore connection failed: $firestoreError');
+        safePrint('⚠️ Firebase initialized but Firestore unavailable');
+      }
+    } catch (e, stackTrace) {
       safePrint('❌ Firebase initialization failed: $e');
+      safePrint('❌ Stack trace: $stackTrace');
       safePrint('⚠️ Continuing without Firebase...');
     }
     
@@ -239,13 +261,11 @@ class AdminDashboardWrapper extends StatelessWidget {
     // Wait for Firebase to be ready with timeout
     int attempts = 0;
     while (!FirestoreService.isFirebaseReady && attempts < 10) {
-      print('AdminDashboardWrapper - Waiting for Firebase to be ready (attempt ${attempts + 1})');
       await Future.delayed(const Duration(milliseconds: 500));
       attempts++;
     }
     
     if (!FirestoreService.isFirebaseReady) {
-      print('AdminDashboardWrapper - Firebase not ready after timeout, using cached data');
     }
     
     return await SessionService.refreshUser();
@@ -273,7 +293,6 @@ class AdminDashboardWrapper extends StatelessWidget {
         }
         
         final user = snapshot.data;
-        print('AdminDashboardWrapper - User loaded: displayName="${user?.displayName}", email="${user?.emailAddress}", isAdmin: ${user?.isAdmin}');
         
         if (user != null && user.isAdmin) {
           // Save current route
@@ -282,7 +301,6 @@ class AdminDashboardWrapper extends StatelessWidget {
         }
         
         // If no valid session, redirect to admin login
-        print('AdminDashboardWrapper - No valid admin session, redirecting to login');
         WidgetsBinding.instance.addPostFrameCallback((_) {
           Navigator.of(context).pushReplacementNamed('/teacher-login');
         });

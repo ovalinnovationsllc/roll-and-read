@@ -6,6 +6,7 @@ import '../models/student_model.dart';
 import '../models/game_session_model.dart';
 import '../models/game_state_model.dart';
 import '../models/word_list_model.dart';
+import '../models/player_colors.dart';
 import '../utils/safe_print.dart';
 
 class FirestoreService {
@@ -91,18 +92,16 @@ class FirestoreService {
     try {
       final docRef = _usersCollection.doc();
       
-      final user = UserModel.create(
+      final user = UserModel.createTeacher(
         id: docRef.id,
         displayName: displayName,
         emailAddress: email.toLowerCase().trim(),
         pin: pin,
-        isAdmin: isAdmin,
       );
 
       await docRef.set(user.toMap());
       return user;
     } catch (e) {
-      print('Error creating user: $e');
       return null;
     }
   }
@@ -115,7 +114,6 @@ class FirestoreService {
           .update(user.toMap());
       return true;
     } catch (e) {
-      print('Error updating user: $e');
       return false;
     }
   }
@@ -142,7 +140,6 @@ class FirestoreService {
           .delete();
       return true;
     } catch (e) {
-      print('Error deleting user: $e');
       return false;
     }
   }
@@ -170,7 +167,6 @@ class FirestoreService {
         'averageWordsPerUser': totalUsers > 0 ? totalWordsCorrect / totalUsers : 0,
       };
     } catch (e) {
-      print('Error getting statistics: $e');
       return {
         'totalUsers': 0,
         'totalGamesPlayed': 0,
@@ -184,24 +180,19 @@ class FirestoreService {
   // Update user statistics
   static Future<void> incrementUserWordsCorrect(String userId) async {
     try {
-      print('DEBUG: Incrementing words correct for user $userId');
       await _firestore.runTransaction((transaction) async {
         final docRef = _usersCollection.doc(userId);
         final doc = await transaction.get(docRef);
         
         if (doc.exists) {
           final currentWordsCorrect = (doc.data() as Map<String, dynamic>)['wordsCorrect'] ?? 0;
-          print('DEBUG: Current wordsCorrect: $currentWordsCorrect, incrementing to ${currentWordsCorrect + 1}');
           transaction.update(docRef, {
             'wordsCorrect': currentWordsCorrect + 1,
           });
-          print('DEBUG: Successfully updated wordsCorrect for user $userId');
         } else {
-          print('DEBUG: User document does not exist for $userId');
         }
       });
     } catch (e) {
-      print('Error incrementing words correct: $e');
     }
   }
 
@@ -212,9 +203,6 @@ class FirestoreService {
     required String? winnerId,
   }) async {
     try {
-      print('DEBUG: Updating game stats for players: $playerIds');
-      print('DEBUG: Word counts: $playerWordCounts');
-      print('DEBUG: Winner: $winnerId');
 
       await _firestore.runTransaction((transaction) async {
         for (final playerId in playerIds) {
@@ -227,7 +215,6 @@ class FirestoreService {
             final currentGamesWon = data['gamesWon'] ?? 0;
             final wordsToAdd = playerWordCounts[playerId] ?? 0;
             
-            print('DEBUG: Player $playerId - current words: $currentWordsCorrect, adding: $wordsToAdd');
             
             final updates = <String, dynamic>{
               'wordsCorrect': currentWordsCorrect + wordsToAdd,
@@ -236,19 +223,15 @@ class FirestoreService {
             // Increment games won for the winner
             if (playerId == winnerId) {
               updates['gamesWon'] = currentGamesWon + 1;
-              print('DEBUG: Player $playerId won - incrementing games won to ${currentGamesWon + 1}');
             }
             
             transaction.update(docRef, updates);
           } else {
-            print('DEBUG: User document does not exist for player $playerId');
           }
         }
       });
       
-      print('DEBUG: Successfully updated game stats for all players');
     } catch (e) {
-      print('Error updating players game stats: $e');
       rethrow;
     }
   }
@@ -267,7 +250,6 @@ class FirestoreService {
         }
       });
     } catch (e) {
-      print('Error incrementing games played: $e');
     }
   }
 
@@ -285,14 +267,12 @@ class FirestoreService {
         }
       });
     } catch (e) {
-      print('Error incrementing games won: $e');
     }
   }
 
   // Batch update multiple users' games played (when a game starts)
   static Future<void> incrementGamesPlayedForUsers(List<String> userIds) async {
     try {
-      print('DEBUG: Incrementing games played for users: $userIds');
       final batch = _firestore.batch();
       
       for (String userId in userIds) {
@@ -301,59 +281,112 @@ class FirestoreService {
         batch.update(docRef, {
           'gamesPlayed': FieldValue.increment(1),
         });
-        print('DEBUG: Added increment for user $userId to batch');
       }
       
       await batch.commit();
-      print('DEBUG: Successfully committed batch increment for games played');
     } catch (e) {
-      print('Error batch incrementing games played: $e');
     }
   }
 
   // Set user words correct to exact count (for final game statistics)
   static Future<void> updateUserWordsCorrect(String userId, int totalWords) async {
     try {
-      print('DEBUG: Setting words correct for user $userId to $totalWords');
       await _usersCollection.doc(userId).update({
         'wordsCorrect': FieldValue.increment(totalWords),
       });
-      print('DEBUG: Successfully updated wordsCorrect to $totalWords for user $userId');
     } catch (e) {
-      print('Error updating words correct: $e');
     }
   }
 
   // ========== STUDENT MANAGEMENT ==========
   
-  /// Get all active students (for simple tap-to-play)
+  /// Get all active students (for simple tap-to-play) - now from users collection
   static Future<List<StudentModel>> getAllActiveStudents() async {
     try {
-      final QuerySnapshot snapshot = await _studentsCollection
-          .where('isActive', isEqualTo: true)
+      final QuerySnapshot snapshot = await _usersCollection
+          .where('isAdmin', isEqualTo: false)  // Students are non-admin users
           .orderBy('displayName')
           .get();
       
       return snapshot.docs
-          .map((doc) => StudentModel.fromMap(doc.data() as Map<String, dynamic>))
+          .map((doc) {
+            try {
+              final userData = doc.data() as Map<String, dynamic>;
+              final user = UserModel.fromMap(userData);
+              // Convert UserModel to StudentModel for backward compatibility
+              return StudentModel(
+                studentId: user.id,
+                teacherId: user.teacherId ?? '',
+                displayName: user.displayName,
+                avatarUrl: user.avatarUrl ?? '🙂',
+                playerColor: user.playerColor ?? Colors.blue,
+                createdAt: user.createdAt,
+                lastPlayedAt: user.lastPlayedAt ?? user.createdAt,
+                gamesPlayed: user.gamesPlayed,
+                gamesWon: user.gamesWon,
+                wordsRead: user.wordsRead,
+              );
+            } catch (e) {
+              safePrint('❌ Error converting document ${doc.id} to StudentModel in getAllActiveStudents: $e');
+              // Return null to filter out invalid documents
+              return null;
+            }
+          })
+          .where((student) => student != null)
+          .cast<StudentModel>()
           .toList();
     } catch (e) {
-      print('Error getting active students: $e');
+      safePrint('❌ Error in getAllActiveStudents: $e');
       return [];
     }
   }
 
-  /// Create a new student
+  /// Create a new student (now creates only in users collection)
   static Future<StudentModel?> createStudent({
     required String teacherId,
     required String displayName,
     required String avatarUrl,
     required Color playerColor,
+    bool enforceUniqueness = true,
   }) async {
     try {
-      final docRef = _studentsCollection.doc();
+      // Check for uniqueness if enforced
+      if (enforceUniqueness) {
+        final existingStudents = await getStudentsForTeacher(teacherId);
+        
+        // Check for duplicate color
+        final colorExists = existingStudents.any((student) => 
+          student.playerColor?.value == playerColor.value);
+        if (colorExists) {
+          print('❌ ERROR: Color already exists for this teacher');
+          return null; // Color already taken
+        }
+        
+        // Check for duplicate avatar
+        final avatarExists = existingStudents.any((student) => 
+          student.avatarUrl == avatarUrl);
+        if (avatarExists) {
+          print('❌ ERROR: Avatar already exists for this teacher');
+          return null; // Avatar already taken
+        }
+      }
+      
+      // Generate new ID for the student
+      final docRef = _usersCollection.doc();
       final now = DateTime.now();
       
+      // Create user document directly (no more students collection)
+      final user = UserModel.createStudent(
+        id: docRef.id,
+        displayName: displayName,
+        teacherId: teacherId,
+        playerColor: playerColor,
+        avatarUrl: avatarUrl,
+      );
+      
+      await _usersCollection.doc(docRef.id).set(user.toMap());
+      
+      // Return a StudentModel for backward compatibility
       final student = StudentModel(
         studentId: docRef.id,
         teacherId: teacherId,
@@ -363,28 +396,9 @@ class FirestoreService {
         createdAt: now,
         lastPlayedAt: now,
       );
-
-      final studentMap = student.toMap();
-
-      // Create student document
-      await docRef.set(studentMap);
-      
-      // Also create a user document so the student can be used in games
-      final user = UserModel.create(
-        id: student.studentId,
-        displayName: displayName,
-        emailAddress: '${student.studentId}@student.local',
-        pin: '0000',
-        isAdmin: false,
-        playerColor: playerColor,
-        avatarUrl: avatarUrl,
-      );
-      
-      await _usersCollection.doc(student.studentId).set(user.toMap());
       
       return student;
     } catch (e) {
-      print('Error creating student: $e');
       return null;
     }
   }
@@ -397,7 +411,7 @@ class FirestoreService {
   }) async {
     try {
       await _firestore.runTransaction((transaction) async {
-        final docRef = _studentsCollection.doc(studentId);
+        final docRef = _usersCollection.doc(studentId);
         final doc = await transaction.get(docRef);
         
         if (doc.exists) {
@@ -415,35 +429,160 @@ class FirestoreService {
         }
       });
     } catch (e) {
-      print('Error updating student stats: $e');
     }
   }
 
-  /// Get students for a specific teacher
+  /// Get available (unused) colors for a teacher's students
+  static Future<List<Color>> getAvailableColors(String teacherId) async {
+    final existingStudents = await getStudentsForTeacher(teacherId);
+    
+    // Check if teacher has reached the maximum student limit
+    if (existingStudents.length >= PlayerColors.maxStudentsPerTeacher) {
+      return []; // No more students allowed
+    }
+    
+    final usedColors = existingStudents
+        .where((student) => student.playerColor != null)
+        .map((student) => student.playerColor!)
+        .toSet();
+    
+    // Return colors from PlayerColors up to the configured limit that aren't used
+    final availableColorsForStudents = PlayerColors.getAvailableColorsForStudents();
+    final allColors = availableColorsForStudents.map((pc) => pc.color).toList();
+    return allColors.where((color) => !usedColors.contains(color)).toList();
+  }
+  
+  /// Get available (unused) avatars for a teacher's students
+  static Future<List<String>> getAvailableAvatars(String teacherId) async {
+    final existingStudents = await getStudentsForTeacher(teacherId);
+    final usedAvatars = existingStudents
+        .where((student) => student.avatarUrl != null)
+        .map((student) => student.avatarUrl!)
+        .toSet();
+    
+    // Common avatar emojis
+    const allAvatars = [
+      '🐱', '🐶', '🐭', '🐹', '🐰', '🦊', '🐻', '🐼', 
+      '⭐', '💖', '🦋', '☀️', '🌙', '🌈', '🎯', '🎨',
+      '🍎', '🍊', '🍋', '🍇', '🍓', '🥝', '🍪', '🎂'
+    ];
+    
+    return allAvatars.where((avatar) => !usedAvatars.contains(avatar)).toList();
+  }
+
+  /// Get students for a specific teacher - now from users collection
   static Future<List<StudentModel>> getStudentsForTeacher(String teacherId) async {
     try {
-      final QuerySnapshot snapshot = await _studentsCollection
+      final QuerySnapshot snapshot = await _usersCollection
           .where('teacherId', isEqualTo: teacherId)
-          .where('isActive', isEqualTo: true)
+          .where('isAdmin', isEqualTo: false)  // Students are non-admin users
           .orderBy('displayName')
           .get();
       
       return snapshot.docs
-          .map((doc) => StudentModel.fromMap(doc.data() as Map<String, dynamic>))
+          .map((doc) {
+            final userData = doc.data() as Map<String, dynamic>;
+            final user = UserModel.fromMap(userData);
+            // Convert UserModel to StudentModel for backward compatibility
+            // Skip students without proper color assignment (shouldn't happen with new system)
+            if (user.playerColor == null) {
+              safePrint('⚠️ Student ${user.displayName} has no color assigned, skipping');
+              return null;
+            }
+            
+            return StudentModel(
+              studentId: user.id,
+              teacherId: user.teacherId ?? '',
+              displayName: user.displayName,
+              avatarUrl: user.avatarUrl ?? '🙂',
+              playerColor: user.playerColor!,
+              createdAt: user.createdAt,
+              lastPlayedAt: user.lastPlayedAt ?? user.createdAt,
+              gamesPlayed: user.gamesPlayed,
+              gamesWon: user.gamesWon,
+              wordsRead: user.wordsRead,
+            );
+          })
+          .where((student) => student != null)
+          .map((student) => student!)
           .toList();
     } catch (e) {
-      print('Error getting students for teacher: $e');
       return [];
     }
   }
 
-  /// Delete student
+  /// Listen to active students for a specific teacher (real-time) - now from users collection
+  static Stream<List<StudentModel>> listenToActiveStudents({String? teacherId}) {
+    // Simplified query - just get all non-admin users and filter client-side to avoid index issues
+    Query query = _usersCollection.where('isAdmin', isEqualTo: false).orderBy('displayName');
+    
+    return query.snapshots().map((snapshot) {
+      try {
+        final allStudents = snapshot.docs
+            .map((doc) {
+              try {
+                final userData = doc.data() as Map<String, dynamic>;
+                final user = UserModel.fromMap(userData);
+                // Convert UserModel to StudentModel for backward compatibility
+                return StudentModel(
+                  studentId: user.id,
+                  teacherId: user.teacherId ?? '',
+                  displayName: user.displayName,
+                  avatarUrl: user.avatarUrl ?? '🙂',
+                  playerColor: user.playerColor ?? Colors.blue,
+                  createdAt: user.createdAt,
+                  lastPlayedAt: user.lastPlayedAt ?? user.createdAt,
+                  gamesPlayed: user.gamesPlayed,
+                  gamesWon: user.gamesWon,
+                  wordsRead: user.wordsRead,
+                );
+              } catch (e) {
+                safePrint('❌ Error converting document ${doc.id} to StudentModel: $e');
+                // Return null to filter out invalid documents
+                return null;
+              }
+            })
+            .where((student) => student != null)
+            .map((student) => student!)
+            .toList();
+            
+        // Client-side filter by teacherId if specified
+        if (teacherId != null) {
+          return allStudents.where((student) => student.teacherId == teacherId).toList();
+        }
+        
+        return allStudents;
+      } catch (e) {
+        safePrint('❌ Error in listenToActiveStudents stream: $e');
+        return <StudentModel>[];
+      }
+    });
+  }
+
+  /// NEW: Listen to students from users collection (consolidated approach)
+  static Stream<List<UserModel>> listenToStudentsFromUsers({String? teacherId}) {
+    Query query = _usersCollection.where('isAdmin', isEqualTo: false);
+    
+    if (teacherId != null) {
+      query = query.where('teacherId', isEqualTo: teacherId);
+    }
+    
+    query = query.orderBy('displayName');
+    
+    return query.snapshots().map((snapshot) {
+      return snapshot.docs
+          .map((doc) => UserModel.fromMap(doc.data() as Map<String, dynamic>))
+          .toList();
+    });
+  }
+
+  /// Delete student - now updates users collection
   static Future<bool> deleteStudent(String studentId) async {
     try {
-      await _studentsCollection.doc(studentId).update({'isActive': false});
+      // Since users collection doesn't have isActive, we actually delete the document
+      await _usersCollection.doc(studentId).delete();
       return true;
     } catch (e) {
-      print('Error deleting student: $e');
       return false;
     }
   }
@@ -462,21 +601,18 @@ class FirestoreService {
         final userDoc = await _usersCollection.doc(student.studentId).get();
         if (!userDoc.exists) {
           // Create missing user document
-          final user = UserModel.create(
+          final user = UserModel.createStudent(
             id: student.studentId,
             displayName: student.displayName,
-            emailAddress: '${student.studentId}@student.local',
-            pin: '0000',
-            isAdmin: false,
+            teacherId: student.teacherId,
             playerColor: student.playerColor,
+            avatarUrl: student.avatarUrl,
           );
           
           await _usersCollection.doc(student.studentId).set(user.toMap());
-          print('Created missing user document for student: ${student.displayName}');
         }
       }
     } catch (e) {
-      print('Error fixing existing students: $e');
     }
   }
 
@@ -503,7 +639,6 @@ class FirestoreService {
         );
       }
     } catch (e) {
-      print('Error creating sample students: $e');
     }
   }
 
@@ -518,7 +653,6 @@ class FirestoreService {
       }
       return null;
     } catch (e) {
-      print('Error getting game session: $e');
       return null;
     }
   }
@@ -526,11 +660,8 @@ class FirestoreService {
   /// Update game session
   static Future<void> updateGameSession(GameSessionModel gameSession) async {
     try {
-      print('🔄 Updating game session ${gameSession.gameId} with ${gameSession.players.length} players');
       await _gamesCollection.doc(gameSession.gameId.toUpperCase()).set(gameSession.toMap());
-      print('✅ Game session ${gameSession.gameId} updated successfully');
     } catch (e) {
-      print('Error updating game session: $e');
       rethrow;
     }
   }
@@ -547,7 +678,6 @@ class FirestoreService {
           .map((doc) => GameSessionModel.fromMap(doc.data() as Map<String, dynamic>))
           .toList();
     } catch (e) {
-      print('Error getting all game sessions: $e');
       return [];
     }
   }
@@ -575,20 +705,17 @@ class FirestoreService {
           .map((doc) => GameSessionModel.fromMap(doc.data() as Map<String, dynamic>))
           .toList();
     } catch (e) {
-      print('Error getting active game sessions: $e');
       return [];
     }
   }
 
   /// Get active games stream (real-time updates)
   static Stream<List<GameSessionModel>> listenToActiveGames({String? teacherId}) {
-    print('🔍 Setting up active games listener for teacher: $teacherId');
     
     Query query = _gamesCollection;
     
     if (teacherId != null) {
       query = query.where('createdBy', isEqualTo: teacherId);
-      print('🔍 Added teacher filter: createdBy == $teacherId');
     }
     
     // Server-side filter for active games only
@@ -597,22 +724,17 @@ class FirestoreService {
       GameStatus.inProgress.toString(),
     ];
     query = query.where('status', whereIn: statusFilters);
-    print('🔍 Added status filter: status in $statusFilters');
     
     // Order by creation time (newest first) and limit for performance  
     query = query.orderBy('createdAt', descending: true).limit(10);
-    print('🔍 Added ordering and limit: createdAt desc, limit 10');
     
     return query.snapshots().map((snapshot) {
-      print('🔍 Firebase query returned ${snapshot.docs.length} documents');
       final games = snapshot.docs
           .map((doc) {
             final data = doc.data() as Map<String, dynamic>;
-            print('🔍 Game doc ${doc.id}: status=${data['status']}, createdBy=${data['createdBy']}');
             return GameSessionModel.fromMap(data);
           })
           .toList();
-      print('🔍 Parsed ${games.length} GameSessionModel objects');
       return games;
     });
   }
@@ -620,7 +742,6 @@ class FirestoreService {
   /// Listen to a specific game session (real-time updates)
   static Stream<GameSessionModel?> listenToGameSession(String gameId) {
     final upperGameId = gameId.toUpperCase();
-    print('🎧 Setting up stream listener for game: $upperGameId');
     
     return _gamesCollection
         .doc(upperGameId)
@@ -628,12 +749,52 @@ class FirestoreService {
         .map((doc) {
           if (doc.exists) {
             final game = GameSessionModel.fromMap(doc.data() as Map<String, dynamic>);
-            print('🎧 Stream update for $upperGameId: ${game.players.length}/${game.maxPlayers} players');
             return game;
           }
-          print('🎧 Stream update for $upperGameId: Game document not found');
           return null;
         });
+  }
+
+  /// Get completed games from the past 5 days
+  static Future<List<GameSessionModel>> getCompletedGames({String? teacherId}) async {
+    try {
+      // Calculate date 5 days ago
+      final fiveDaysAgo = DateTime.now().subtract(const Duration(days: 5));
+      final fiveDaysAgoTimestamp = Timestamp.fromDate(fiveDaysAgo);
+      
+      Query query = _gamesCollection;
+      
+      if (teacherId != null) {
+        query = query.where('createdBy', isEqualTo: teacherId);
+      }
+      
+      // Filter for completed games only
+      query = query.where('status', isEqualTo: GameStatus.completed.toString());
+      
+      // Don't filter by endedAt initially - let's see all completed games first
+      // query = query.where('endedAt', isGreaterThan: fiveDaysAgoTimestamp);
+      
+      // Order by creation time (newest first) since endedAt might not be indexed
+      query = query.orderBy('createdAt', descending: true);
+      
+      final snapshot = await query.get();
+      final allGames = snapshot.docs
+          .map((doc) => GameSessionModel.fromMap(doc.data() as Map<String, dynamic>))
+          .toList();
+      
+      // Filter in memory for games completed in the last 5 days
+      final recentGames = allGames.where((game) {
+        if (game.endedAt == null) return false;
+        return game.endedAt!.isAfter(fiveDaysAgo);
+      }).toList();
+      
+      // Sort by endedAt in memory
+      recentGames.sort((a, b) => (b.endedAt ?? b.createdAt).compareTo(a.endedAt ?? a.createdAt));
+      
+      return recentGames;
+    } catch (e) {
+      return [];
+    }
   }
 
   // ========== GAME STATE METHODS ==========
@@ -643,7 +804,6 @@ class FirestoreService {
     try {
       await _gameStatesCollection.doc(gameState.gameId.toUpperCase()).set(gameState.toMap());
     } catch (e) {
-      print('Error saving game state: $e');
       rethrow;
     }
   }
@@ -657,7 +817,6 @@ class FirestoreService {
       }
       return null;
     } catch (e) {
-      print('Error getting game state: $e');
       return null;
     }
   }
@@ -666,14 +825,9 @@ class FirestoreService {
   static Future<void> updateGameState(GameStateModel gameState) async {
     try {
       final gameStateMap = gameState.toMap();
-      print('🔥 FIRESTORE DEBUG: Updating game state ${gameState.gameId}');
-      print('  currentDiceValue being sent: ${gameStateMap['currentDiceValue']}');
-      print('  currentTurnPlayerId being sent: ${gameStateMap['currentTurnPlayerId']}');
       
       await _gameStatesCollection.doc(gameState.gameId.toUpperCase()).set(gameStateMap);
-      print('✅ FIRESTORE: Game state updated successfully');
     } catch (e) {
-      print('Error updating game state: $e');
       rethrow;
     }
   }
@@ -683,7 +837,6 @@ class FirestoreService {
     try {
       await _gameStatesCollection.doc(gameId.toUpperCase()).delete();
     } catch (e) {
-      print('Error deleting game state: $e');
       rethrow;
     }
   }
@@ -698,7 +851,6 @@ class FirestoreService {
       await docRef.set(wordListWithId.toMap());
       return wordListWithId;
     } catch (e) {
-      print('Error saving word list: $e');
       rethrow;
     }
   }
@@ -711,7 +863,6 @@ class FirestoreService {
           .map((doc) => WordListModel.fromMap(doc.id, doc.data() as Map<String, dynamic>))
           .toList();
     } catch (e) {
-      print('Error getting all word lists: $e');
       return [];
     }
   }
@@ -726,7 +877,6 @@ class FirestoreService {
           .map((doc) => WordListModel.fromMap(doc.id, doc.data() as Map<String, dynamic>))
           .toList();
     } catch (e) {
-      print('Error getting word lists by difficulty: $e');
       return [];
     }
   }
@@ -742,7 +892,6 @@ class FirestoreService {
           .map((doc) => WordListModel.fromMap(doc.id, doc.data() as Map<String, dynamic>))
           .toList();
     } catch (e) {
-      print('Error searching word lists: $e');
       return [];
     }
   }
@@ -756,7 +905,6 @@ class FirestoreService {
       }
       return null;
     } catch (e) {
-      print('Error getting word list: $e');
       return null;
     }
   }
@@ -768,7 +916,6 @@ class FirestoreService {
         'usageCount': FieldValue.increment(1),
       });
     } catch (e) {
-      print('Error incrementing word list usage: $e');
     }
   }
 
@@ -777,7 +924,17 @@ class FirestoreService {
     try {
       await _wordListsCollection.doc(id).delete();
     } catch (e) {
-      print('Error deleting word list: $e');
+      rethrow;
+    }
+  }
+
+  /// Update student color
+  static Future<void> updateStudentColor(String studentId, Color newColor) async {
+    try {
+      await _usersCollection.doc(studentId).update({
+        'playerColor': newColor.value,
+      });
+    } catch (e) {
       rethrow;
     }
   }
@@ -793,7 +950,6 @@ class FirestoreService {
           .map((doc) => WordListModel.fromMap(doc.id, doc.data() as Map<String, dynamic>))
           .toList();
     } catch (e) {
-      print('Error getting popular word lists: $e');
       return [];
     }
   }
@@ -812,7 +968,6 @@ class FirestoreService {
       }
       return null;
     } catch (e) {
-      print('Error finding existing word list: $e');
       return null;
     }
   }
@@ -823,7 +978,6 @@ class FirestoreService {
       await _firestore.doc('test/connection').get();
       return true;
     } catch (e) {
-      print('Error testing connection: $e');
       return false;
     }
   }
@@ -834,7 +988,6 @@ class FirestoreService {
       await _gamesCollection.doc(gameSession.gameId.toUpperCase()).set(gameSession.toMap());
       return gameSession;
     } catch (e) {
-      print('Error creating game session: $e');
       rethrow;
     }
   }
@@ -844,8 +997,217 @@ class FirestoreService {
     try {
       await _gamesCollection.doc(gameId.toUpperCase()).delete();
     } catch (e) {
-      print('Error deleting game session: $e');
       rethrow;
+    }
+  }
+
+  /// Clean up completed games older than 5 days
+  static Future<void> cleanupOldCompletedGames() async {
+    try {
+      final fiveDaysAgo = DateTime.now().subtract(const Duration(days: 5));
+      final cutoffTimestamp = Timestamp.fromDate(fiveDaysAgo);
+      
+      // Get completed games older than 5 days
+      final snapshot = await _gamesCollection
+          .where('status', isEqualTo: GameStatus.completed.toString())
+          .where('endedAt', isLessThan: cutoffTimestamp)
+          .get();
+      
+      if (snapshot.docs.isEmpty) {
+        return;
+      }
+      
+      // Delete in batches (Firestore limit is 500 operations per batch)
+      const batchSize = 400; // Leave some margin
+      final docs = snapshot.docs;
+      
+      for (int i = 0; i < docs.length; i += batchSize) {
+        final batch = _firestore.batch();
+        final endIndex = (i + batchSize < docs.length) ? i + batchSize : docs.length;
+        
+        for (int j = i; j < endIndex; j++) {
+          final doc = docs[j];
+          batch.delete(doc.reference);
+          
+          // Also clean up corresponding game state if it exists
+          final gameStateRef = _gameStatesCollection.doc(doc.id);
+          batch.delete(gameStateRef);
+        }
+        
+        await batch.commit();
+      }
+      
+    } catch (e) {
+      // Silently fail cleanup - don't break the app if cleanup fails
+    }
+  }
+
+  /// Clean up all old data (games, game states)
+  static Future<void> performMaintenanceCleanup() async {
+    try {
+      await Future.wait([
+        cleanupOldCompletedGames(),
+        _cleanupOrphanedGameStates(),
+      ]);
+    } catch (e) {
+      // Silently fail cleanup
+    }
+  }
+
+  /// MIGRATION: Consolidate students collection into users collection
+  static Future<Map<String, dynamic>> migrateStudentsToUsers() async {
+    try {
+      // Step 1: Get all students from students collection
+      final studentsSnapshot = await _studentsCollection.get();
+      
+      int migrated = 0;
+      int updated = 0;
+      int errors = 0;
+      
+      for (final studentDoc in studentsSnapshot.docs) {
+        try {
+          final studentData = studentDoc.data() as Map<String, dynamic>;
+          final studentId = studentDoc.id;
+          
+          // Check if user already exists
+          final existingUser = await _usersCollection.doc(studentId).get();
+          
+          if (existingUser.exists) {
+            // Update existing user with student fields
+            await _usersCollection.doc(studentId).update({
+              'teacherId': studentData['teacherId'],
+              'gamesPlayed': studentData['gamesPlayed'] ?? 0,
+              'gamesWon': studentData['gamesWon'] ?? 0,
+              'wordsRead': studentData['wordsRead'] ?? 0,
+              'lastPlayedAt': studentData['lastPlayedAt'],
+              'isStudent': true,
+            });
+            updated++;
+          } else {
+            // Create new user from student data
+            final userData = {
+              'id': studentId,
+              'displayName': studentData['displayName'] ?? 'Student',
+              'emailAddress': '${studentId}@student.local',
+              'isAdmin': false,
+              'teacherId': studentData['teacherId'],
+              'gamesPlayed': studentData['gamesPlayed'] ?? 0,
+              'gamesWon': studentData['gamesWon'] ?? 0,
+              'wordsRead': studentData['wordsRead'] ?? 0,
+              'createdAt': studentData['createdAt'] ?? Timestamp.now(),
+              'lastPlayedAt': studentData['lastPlayedAt'],
+              'playerColor': studentData['playerColor'],
+              'avatarUrl': studentData['avatarUrl'],
+              'isActive': studentData['isActive'] ?? true,
+              'isStudent': true,
+            };
+            
+            await _usersCollection.doc(studentId).set(userData);
+            migrated++;
+          }
+        } catch (e) {
+          errors++;
+        }
+      }
+      
+      return {
+        'success': true,
+        'totalStudents': studentsSnapshot.docs.length,
+        'migrated': migrated,
+        'updated': updated,
+        'errors': errors,
+      };
+    } catch (e) {
+      return {
+        'success': false,
+        'error': e.toString(),
+      };
+    }
+  }
+
+  /// Delete all documents from the students collection
+  static Future<Map<String, dynamic>> deleteStudentsCollection() async {
+    try {
+      safePrint('🗑️  Starting deletion of students collection...');
+      
+      // Get all documents in the students collection
+      final studentsSnapshot = await _studentsCollection.get();
+      
+      if (studentsSnapshot.docs.isEmpty) {
+        return {
+          'success': true,
+          'message': 'Students collection is already empty',
+          'deletedCount': 0,
+        };
+      }
+      
+      safePrint('📊 Found ${studentsSnapshot.docs.length} documents to delete');
+      
+      // Delete documents in batches (Firestore batch limit is 500)
+      const batchSize = 400; // Use 400 to be safe
+      int deletedCount = 0;
+      
+      final docs = studentsSnapshot.docs;
+      for (int i = 0; i < docs.length; i += batchSize) {
+        final batch = _firestore.batch();
+        final endIndex = (i + batchSize < docs.length) ? i + batchSize : docs.length;
+        
+        for (int j = i; j < endIndex; j++) {
+          batch.delete(docs[j].reference);
+        }
+        
+        safePrint('🔥 Deleting batch ${(i ~/ batchSize) + 1}...');
+        await batch.commit();
+        deletedCount += (endIndex - i);
+        
+        safePrint('✅ Deleted $deletedCount/${docs.length} documents');
+      }
+      
+      safePrint('🎉 Successfully deleted all $deletedCount documents from students collection!');
+      
+      return {
+        'success': true,
+        'message': 'Successfully deleted students collection',
+        'deletedCount': deletedCount,
+      };
+    } catch (e) {
+      safePrint('❌ Error deleting students collection: $e');
+      return {
+        'success': false,
+        'error': e.toString(),
+      };
+    }
+  }
+
+  /// Clean up game states that no longer have corresponding games
+  static Future<void> _cleanupOrphanedGameStates() async {
+    try {
+      final gameStatesSnapshot = await _gameStatesCollection.get();
+      if (gameStatesSnapshot.docs.isEmpty) return;
+      
+      const batchSize = 400;
+      final docs = gameStatesSnapshot.docs;
+      
+      for (int i = 0; i < docs.length; i += batchSize) {
+        final batch = _firestore.batch();
+        final endIndex = (i + batchSize < docs.length) ? i + batchSize : docs.length;
+        
+        for (int j = i; j < endIndex; j++) {
+          final gameStateDoc = docs[j];
+          final gameId = gameStateDoc.id;
+          
+          // Check if corresponding game exists
+          final gameDoc = await _gamesCollection.doc(gameId).get();
+          if (!gameDoc.exists) {
+            // Game doesn't exist, delete the orphaned game state
+            batch.delete(gameStateDoc.reference);
+          }
+        }
+        
+        await batch.commit();
+      }
+    } catch (e) {
+      // Silently fail cleanup
     }
   }
 
@@ -857,7 +1219,6 @@ class FirestoreService {
     required int wordsCorrect,
   }) async {
     try {
-      print('📊 Updating stats for player $playerId: +$gamesPlayed games, +$gamesWon wins, +$wordsCorrect words');
       
       // Try to find player in students collection first
       final studentDoc = await _studentsCollection.doc(playerId).get();
@@ -868,7 +1229,6 @@ class FirestoreService {
           'wordsRead': FieldValue.increment(wordsCorrect),
           'lastGameAt': FieldValue.serverTimestamp(),
         });
-        print('✅ Updated student stats for $playerId');
         return;
       }
 
@@ -881,13 +1241,10 @@ class FirestoreService {
           'wordsCorrect': FieldValue.increment(wordsCorrect),
           'lastGameAt': FieldValue.serverTimestamp(),
         });
-        print('✅ Updated user stats for $playerId');
         return;
       }
 
-      print('⚠️ Player $playerId not found in students or users collections');
     } catch (e) {
-      print('❌ Error updating player stats: $e');
       rethrow;
     }
   }

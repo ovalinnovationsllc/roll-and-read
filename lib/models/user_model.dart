@@ -5,12 +5,18 @@ class UserModel {
   final String id;
   final String displayName;
   final String emailAddress;
-  final String pin;
   final bool isAdmin;
+  final DateTime createdAt;
+  
+  // Teacher-only fields
+  final String? pin;  // Only for teachers (admin login)
+  
+  // Student-only fields
+  final String? teacherId;  // Which teacher owns this student
   final int gamesPlayed;
   final int gamesWon;
-  final int wordsCorrect;
-  final DateTime createdAt;
+  final int wordsRead;  // Renamed from wordsCorrect for clarity
+  final DateTime? lastPlayedAt;
   final Color? playerColor;
   final String? avatarUrl;
 
@@ -18,79 +24,91 @@ class UserModel {
     required this.id,
     required this.displayName,
     required this.emailAddress,
-    required this.pin,
     this.isAdmin = false,
+    required this.createdAt,
+    // Teacher fields
+    this.pin,
+    // Student fields
+    this.teacherId,
     this.gamesPlayed = 0,
     this.gamesWon = 0,
-    this.wordsCorrect = 0,
-    required this.createdAt,
+    this.wordsRead = 0,
+    this.lastPlayedAt,
     this.playerColor,
     this.avatarUrl,
   });
 
-  // Create a new user
-  factory UserModel.create({
+  // Create a new teacher
+  factory UserModel.createTeacher({
     required String id,
     required String displayName,
     required String emailAddress,
     required String pin,
-    bool isAdmin = false,
-    Color? playerColor,
-    String? avatarUrl,
   }) {
     return UserModel(
       id: id,
       displayName: displayName,
       emailAddress: emailAddress,
+      isAdmin: true,
       pin: pin,
-      isAdmin: isAdmin,
-      gamesPlayed: 0,
-      gamesWon: 0,
-      wordsCorrect: 0,
       createdAt: DateTime.now(),
-      playerColor: playerColor,
-      avatarUrl: avatarUrl,
     );
   }
 
-  // Create a new admin user
-  factory UserModel.createAdmin({
+  // Create a new student
+  factory UserModel.createStudent({
     required String id,
     required String displayName,
-    required String emailAddress,
+    required String teacherId,
     Color? playerColor,
     String? avatarUrl,
   }) {
     return UserModel(
       id: id,
       displayName: displayName,
-      emailAddress: emailAddress,
-      pin: '', // No PIN needed for admin
-      isAdmin: true,
-      gamesPlayed: 0,
-      gamesWon: 0,
-      wordsCorrect: 0,
-      createdAt: DateTime.now(),
+      emailAddress: '${id}@student.local', // Generated email for students
+      isAdmin: false,
+      teacherId: teacherId,
       playerColor: playerColor,
       avatarUrl: avatarUrl,
+      createdAt: DateTime.now(),
+      lastPlayedAt: DateTime.now(),
     );
   }
 
   // Convert to Map for database storage
   Map<String, dynamic> toMap() {
-    return {
+    final map = <String, dynamic>{
       'id': id,
       'displayName': displayName,
       'emailAddress': emailAddress,
-      'pin': pin,
       'isAdmin': isAdmin,
-      'gamesPlayed': gamesPlayed,
-      'gamesWon': gamesWon,
-      'wordsCorrect': wordsCorrect,
       'createdAt': Timestamp.fromDate(createdAt),
-      'playerColor': playerColor?.value,
-      'avatarUrl': avatarUrl,
     };
+    
+    // Add teacher-specific fields
+    if (isAdmin && pin != null) {
+      map['pin'] = pin;
+    }
+    
+    // Add student-specific fields
+    if (!isAdmin) {
+      map['teacherId'] = teacherId;
+      map['gamesPlayed'] = gamesPlayed;
+      map['gamesWon'] = gamesWon;
+      map['wordsRead'] = wordsRead;
+      if (lastPlayedAt != null) {
+        map['lastPlayedAt'] = Timestamp.fromDate(lastPlayedAt!);
+      }
+      if (playerColor != null) {
+        map['playerColor'] = playerColor!.value;
+      }
+      if (avatarUrl != null) {
+        map['avatarUrl'] = avatarUrl;
+      }
+    }
+    
+    return map;
   }
 
   // Create from Map (database retrieval)
@@ -99,22 +117,36 @@ class UserModel {
       if (value == null) return DateTime.now();
       if (value is String) return DateTime.parse(value);
       if (value is Timestamp) {
-        // Handle Firestore Timestamp
         return value.toDate();
       }
       return DateTime.now();
     }
 
+    DateTime? parseNullableDateTime(dynamic value) {
+      if (value == null) return null;
+      if (value is String) return DateTime.parse(value);
+      if (value is Timestamp) {
+        return value.toDate();
+      }
+      return null;
+    }
+
+    final isAdmin = map['isAdmin'] ?? false;
+
     return UserModel(
       id: map['id'] ?? '',
       displayName: map['displayName'] ?? '',
       emailAddress: map['emailAddress'] ?? '',
-      pin: map['pin'] ?? '',
-      isAdmin: map['isAdmin'] ?? false,
+      isAdmin: isAdmin,
+      createdAt: parseDateTime(map['createdAt']),
+      // Teacher fields
+      pin: isAdmin ? map['pin'] : null,
+      // Student fields  
+      teacherId: !isAdmin ? map['teacherId'] : null,
       gamesPlayed: (map['gamesPlayed'] ?? 0).toInt(),
       gamesWon: (map['gamesWon'] ?? 0).toInt(),
-      wordsCorrect: (map['wordsCorrect'] ?? 0).toInt(),
-      createdAt: parseDateTime(map['createdAt']),
+      wordsRead: (map['wordsRead'] ?? map['wordsCorrect'] ?? 0).toInt(), // Support old field name
+      lastPlayedAt: parseNullableDateTime(map['lastPlayedAt']),
       playerColor: map['playerColor'] != null ? Color(map['playerColor']) : null,
       avatarUrl: map['avatarUrl'],
     );
@@ -130,7 +162,7 @@ class UserModel {
       'isAdmin': isAdmin,
       'gamesPlayed': gamesPlayed,
       'gamesWon': gamesWon,
-      'wordsCorrect': wordsCorrect,
+      'wordsRead': wordsRead,
       'createdAt': createdAt.toIso8601String(),
       'playerColor': playerColor?.value,
       'avatarUrl': avatarUrl,
@@ -162,7 +194,7 @@ class UserModel {
       isAdmin: json['isAdmin'] ?? false,
       gamesPlayed: (json['gamesPlayed'] ?? 0).toInt(),
       gamesWon: (json['gamesWon'] ?? 0).toInt(),
-      wordsCorrect: (json['wordsCorrect'] ?? 0).toInt(),
+      wordsRead: (json['wordsRead'] ?? json['wordsCorrect'] ?? 0).toInt(),
       createdAt: parseDateTime(json['createdAt']),
       playerColor: json['playerColor'] != null ? Color(json['playerColor']) : null,
       avatarUrl: json['avatarUrl'],
@@ -178,8 +210,10 @@ class UserModel {
     bool? isAdmin,
     int? gamesPlayed,
     int? gamesWon,
-    int? wordsCorrect,
+    int? wordsRead,
+    String? teacherId,
     DateTime? createdAt,
+    DateTime? lastPlayedAt,
     Color? playerColor,
     String? avatarUrl,
   }) {
@@ -187,12 +221,14 @@ class UserModel {
       id: id ?? this.id,
       displayName: displayName ?? this.displayName,
       emailAddress: emailAddress ?? this.emailAddress,
-      pin: pin ?? this.pin,
       isAdmin: isAdmin ?? this.isAdmin,
+      createdAt: createdAt ?? this.createdAt,
+      pin: pin ?? this.pin,
+      teacherId: teacherId ?? this.teacherId,
       gamesPlayed: gamesPlayed ?? this.gamesPlayed,
       gamesWon: gamesWon ?? this.gamesWon,
-      wordsCorrect: wordsCorrect ?? this.wordsCorrect,
-      createdAt: createdAt ?? this.createdAt,
+      wordsRead: wordsRead ?? this.wordsRead,
+      lastPlayedAt: lastPlayedAt ?? this.lastPlayedAt,
       playerColor: playerColor ?? this.playerColor,
       avatarUrl: avatarUrl ?? this.avatarUrl,
     );
@@ -208,7 +244,7 @@ class UserModel {
   }
 
   UserModel incrementWordsCorrect([int count = 1]) {
-    return copyWith(wordsCorrect: wordsCorrect + count);
+    return copyWith(wordsRead: wordsRead + count);
   }
 
   // Equality operator
@@ -224,7 +260,7 @@ class UserModel {
       other.isAdmin == isAdmin &&
       other.gamesPlayed == gamesPlayed &&
       other.gamesWon == gamesWon &&
-      other.wordsCorrect == wordsCorrect &&
+      other.wordsRead == wordsRead &&
       other.createdAt == createdAt;
   }
 
@@ -237,12 +273,12 @@ class UserModel {
       isAdmin.hashCode ^
       gamesPlayed.hashCode ^
       gamesWon.hashCode ^
-      wordsCorrect.hashCode ^
+      wordsRead.hashCode ^
       createdAt.hashCode;
   }
 
   @override
   String toString() {
-    return 'UserModel(id: $id, displayName: $displayName, emailAddress: $emailAddress, pin: $pin, isAdmin: $isAdmin, gamesPlayed: $gamesPlayed, gamesWon: $gamesWon, wordsCorrect: $wordsCorrect, createdAt: $createdAt)';
+    return 'UserModel(id: $id, displayName: $displayName, emailAddress: $emailAddress, pin: $pin, isAdmin: $isAdmin, gamesPlayed: $gamesPlayed, gamesWon: $gamesWon, wordsRead: $wordsRead, createdAt: $createdAt)';
   }
 }

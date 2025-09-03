@@ -8,7 +8,6 @@ class WordListService {
     try {
       return await FirestoreService.saveWordList(wordList);
     } catch (e) {
-      print('Error saving word list: $e');
       rethrow;
     }
   }
@@ -16,20 +15,14 @@ class WordListService {
   /// Get all available word lists, sorted by most recently created
   static Future<List<WordListModel>> getAllWordLists() async {
     try {
-      print('📚 WordListService: Starting to fetch all word lists...');
-      print('📚 WordListService: Local storage ready: ${FirestoreService.isInitialized}');
       
       if (!FirestoreService.isInitialized) {
-        print('📚 WordListService: Local storage not ready, returning empty list');
         return [];
       }
       
       final wordLists = await FirestoreService.getAllWordLists();
-      print('📚 WordListService: Successfully loaded ${wordLists.length} word lists');
       return wordLists;
     } catch (e) {
-      print('📚 WordListService: Error getting word lists: $e');
-      print('📚 WordListService: Error type: ${e.runtimeType}');
       return [];
     }
   }
@@ -39,7 +32,6 @@ class WordListService {
     try {
       return await FirestoreService.getWordListsByDifficulty(difficulty);
     } catch (e) {
-      print('Error getting word lists by difficulty: $e');
       return [];
     }
   }
@@ -49,7 +41,6 @@ class WordListService {
     try {
       return await FirestoreService.searchWordLists(searchQuery);
     } catch (e) {
-      print('Error searching word lists: $e');
       return [];
     }
   }
@@ -59,7 +50,6 @@ class WordListService {
     try {
       return await FirestoreService.getWordList(id);
     } catch (e) {
-      print('Error getting word list: $e');
       return null;
     }
   }
@@ -69,7 +59,6 @@ class WordListService {
     try {
       await FirestoreService.incrementWordListUsage(wordListId);
     } catch (e) {
-      print('Error incrementing usage count: $e');
       // Don't rethrow - this is not critical
     }
   }
@@ -79,7 +68,6 @@ class WordListService {
     try {
       await FirestoreService.deleteWordList(id);
     } catch (e) {
-      print('Error deleting word list: $e');
       rethrow;
     }
   }
@@ -89,7 +77,6 @@ class WordListService {
     try {
       return await FirestoreService.getPopularWordLists(limit: limit);
     } catch (e) {
-      print('Error getting popular word lists: $e');
       return [];
     }
   }
@@ -99,7 +86,6 @@ class WordListService {
     try {
       return await FirestoreService.findExistingWordList(prompt, difficulty);
     } catch (e) {
-      print('Error finding existing word list: $e');
       return null;
     }
   }
@@ -107,10 +93,8 @@ class WordListService {
   /// Test method to check basic local storage connectivity
   static Future<bool> testStorageConnection() async {
     try {
-      print('🔧 Testing local storage connection...');
       return await FirestoreService.testConnection();
     } catch (e) {
-      print('🔧 Local storage connection failed: $e');
       return false;
     }
   }

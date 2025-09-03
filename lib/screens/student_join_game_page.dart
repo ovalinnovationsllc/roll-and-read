@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import '../config/app_colors.dart';
-import '../models/game_session_model.dart';
 import '../services/game_session_service.dart';
 import '../services/session_service.dart';
 import 'clean_multiplayer_screen.dart';
@@ -41,7 +40,6 @@ class _StudentJoinGamePageState extends State<StudentJoinGamePage> {
       // Find the game using GameSessionService
       final game = await GameSessionService.getGameSession(code);
       if (game != null) {
-        print('🎯 Game details: ${game.gameName}, Status: ${game.status}, Players: ${game.players.length}');
       }
       
       if (game == null) {
@@ -70,7 +68,14 @@ class _StudentJoinGamePageState extends State<StudentJoinGamePage> {
         return;
       }
 
-      print('🎓 STUDENT JOIN: About to join game with user: ${user.displayName}');
+      // Verify that this student belongs to the teacher who created the game
+      if (user.teacherId != game.createdBy) {
+        setState(() {
+          _errorMessage = 'You can only join games created by your teacher.';
+          _isJoining = false;
+        });
+        return;
+      }
       
       // Actually join the game (add user to the game's player list)
       final updatedGame = await GameSessionService.joinGameSession(
@@ -86,7 +91,6 @@ class _StudentJoinGamePageState extends State<StudentJoinGamePage> {
         return;
       }
 
-      print('🎓 STUDENT JOIN: Successfully joined game. Players: ${updatedGame.players.length}/${updatedGame.maxPlayers}');
 
       // Save the updated game session with student added
       await SessionService.saveGameSession(updatedGame);
@@ -105,9 +109,6 @@ class _StudentJoinGamePageState extends State<StudentJoinGamePage> {
         );
       }
     } catch (e) {
-      print('❌ Error joining game: $e');
-      print('❌ Error type: ${e.runtimeType}');
-      print('❌ Stack trace: ${StackTrace.current}');
       
       // Show the actual error to help debug
       setState(() {

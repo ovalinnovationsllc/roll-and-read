@@ -36,7 +36,6 @@ class StudentGameService {
         .doc(gameId)
         .set(studentGame.toMap());
     
-    print('Created student game with code: $gameCode');
     return studentGame;
   }
   
@@ -55,7 +54,6 @@ class StudentGameService {
       }
       return null;
     } catch (e) {
-      print('Error finding game by code: $e');
       return null;
     }
   }
@@ -70,19 +68,16 @@ class StudentGameService {
     try {
       final game = await findGameByCode(gameCode);
       if (game == null) {
-        print('Game not found with code: $gameCode');
         return null;
       }
       
       if (game.isFull) {
-        print('Game is full');
         return null;
       }
       
       // Get next available slot
       final slot = game.nextAvailableSlot;
       if (slot == -1) {
-        print('No available slots');
         return null;
       }
       
@@ -111,14 +106,12 @@ class StudentGameService {
           .doc(game.gameId)
           .update(updatedGame.toMap());
       
-      print('Added player ${newPlayer.playerName} to game $gameCode');
       return {
         'game': updatedGame,
         'playerId': playerId,
       };
       
     } catch (e) {
-      print('Error adding player to game: $e');
       return null;
     }
   }
@@ -133,7 +126,6 @@ class StudentGameService {
           .get();
       
       if (!gameDoc.exists) {
-        print('Game not found: $gameId');
         return false;
       }
       
@@ -152,10 +144,8 @@ class StudentGameService {
         'startedAt': Timestamp.fromDate(DateTime.now()),
       });
       
-      print('Started student game: $gameId with shared state for ${playerIds.length} players');
       return true;
     } catch (e) {
-      print('Error starting game: $e');
       return false;
     }
   }
@@ -191,10 +181,8 @@ class StudentGameService {
   static Future<bool> deleteGame(String gameId) async {
     try {
       await _firestore.collection(_collection).doc(gameId).delete();
-      print('Deleted game: $gameId');
       return true;
     } catch (e) {
-      print('Error deleting game: $e');
       return false;
     }
   }
@@ -213,10 +201,8 @@ class StudentGameService {
           .doc(gameId)
           .update({'players': updatedPlayers.map((p) => p.toMap()).toList()});
       
-      print('Removed player $playerId from game $gameId');
       return true;
     } catch (e) {
-      print('Error removing player: $e');
       return false;
     }
   }
@@ -255,13 +241,11 @@ class StudentGameService {
           totalPlayers: game.players.length,
         );
         
-        print('Completed student game $gameId and updated teacher ${game.teacherId} stats');
         return true;
       }
       
       return false;
     } catch (e) {
-      print('Error completing student game: $e');
       return false;
     }
   }
@@ -304,11 +288,9 @@ class StudentGameService {
           
           transaction.update(teacherRef, updates);
           
-          print('Updated teacher $teacherId stats: +1 game managed, +$totalWordsRead words facilitated');
         }
       });
     } catch (e) {
-      print('Error updating teacher stats for student game: $e');
     }
   }
   
