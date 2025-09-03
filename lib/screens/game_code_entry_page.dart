@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../config/app_colors.dart';
 import '../services/game_session_service.dart';
 import 'student_selection_for_join.dart';
@@ -179,6 +180,10 @@ class _GameCodeEntryPageState extends State<GameCodeEntryPage> {
                                 controller: _codeController,
                                 textAlign: TextAlign.center,
                                 textCapitalization: TextCapitalization.characters,
+                                inputFormatters: [
+                                  FilteringTextInputFormatter.allow(RegExp('[A-Za-z0-9]')),
+                                  UpperCaseTextFormatter(),
+                                ],
                                 maxLength: 6,
                                 style: TextStyle(
                                   fontSize: isTablet ? 36 : 28,
@@ -334,6 +339,19 @@ class _GameCodeEntryPageState extends State<GameCodeEntryPage> {
           ),
         ),
       ),
+    );
+  }
+}
+
+class UpperCaseTextFormatter extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    return TextEditingValue(
+      text: newValue.text.toUpperCase(),
+      selection: newValue.selection,
     );
   }
 }
