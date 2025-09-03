@@ -18,7 +18,6 @@ import '../models/game_session_model.dart';
 import '../models/game_state_model.dart';
 import '../models/student_game_model.dart';
 import '../services/student_game_service.dart';
-import 'teacher_pronunciation_monitor_new.dart';
 import 'teacher_game_screen.dart';
 
 class AdminDashboardPage extends StatefulWidget {
@@ -1808,22 +1807,6 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
           ),
         ],
       ),
-      floatingActionButton: _activeGames.isNotEmpty ? FloatingActionButton.extended(
-        onPressed: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => TeacherPronunciationMonitorNew(
-                user: widget.adminUser,
-                gameSession: _activeGames.first,
-              ),
-            ),
-          );
-        },
-        icon: const Icon(Icons.monitor),
-        label: const Text('New Teacher Monitor'),
-        backgroundColor: Colors.blue,
-      ) : null,
     );
   }
 
