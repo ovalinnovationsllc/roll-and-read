@@ -181,6 +181,12 @@ class SessionService {
       safePrint('🔍 Session check - user: ${user?.displayName} (admin: ${user?.isAdmin})');
       safePrint('🔍 Session check - gameSession: ${gameSession?.gameId} (status: ${gameSession?.status})');
 
+      // NEW USER CHECK: If no saved data exists, this is a fresh app launch
+      if (savedRoute == null && user == null && gameSession == null) {
+        safePrint('🆕 New user detected - no saved session data, starting at home page');
+        return '/';
+      }
+
       // If local storage isn't ready, we should still try to restore the session
       // Don't clear valid sessions just because of storage issues
       if (!isStorageReady) {

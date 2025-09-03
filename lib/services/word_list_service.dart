@@ -98,4 +98,62 @@ class WordListService {
       return false;
     }
   }
+  
+  /// Get word lists by tags (filtering by multiple tags)
+  static Future<List<WordListModel>> getWordListsByTags(List<String> tags) async {
+    try {
+      final allLists = await getAllWordLists();
+      return allLists.where((list) => 
+        list.tags.any((tag) => tags.contains(tag))
+      ).toList();
+    } catch (e) {
+      return [];
+    }
+  }
+  
+  /// Get word lists by grade level
+  static Future<List<WordListModel>> getWordListsByGrade(String grade) async {
+    try {
+      final allLists = await getAllWordLists();
+      return allLists.where((list) => list.grade == grade).toList();
+    } catch (e) {
+      return [];
+    }
+  }
+  
+  /// Get word lists by subject
+  static Future<List<WordListModel>> getWordListsBySubject(String subject) async {
+    try {
+      final allLists = await getAllWordLists();
+      return allLists.where((list) => list.subject == subject).toList();
+    } catch (e) {
+      return [];
+    }
+  }
+  
+  /// Get public word lists (shared by other teachers)
+  static Future<List<WordListModel>> getPublicWordLists() async {
+    try {
+      final allLists = await getAllWordLists();
+      return allLists.where((list) => list.isPublic).toList();
+    } catch (e) {
+      return [];
+    }
+  }
+  
+  /// Update the lastUsed timestamp when a word list is used
+  static Future<void> updateLastUsed(String wordListId) async {
+    try {
+      final wordList = await getWordList(wordListId);
+      if (wordList != null) {
+        final updated = wordList.copyWith(
+          lastUsed: DateTime.now(),
+          timesUsed: wordList.timesUsed + 1,
+        );
+        await FirestoreService.updateWordList(updated);
+      }
+    } catch (e) {
+      // Don't rethrow - this is not critical
+    }
+  }
 }

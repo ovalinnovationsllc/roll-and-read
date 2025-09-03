@@ -930,6 +930,15 @@ class FirestoreService {
       rethrow;
     }
   }
+  
+  /// Update word list
+  static Future<void> updateWordList(WordListModel wordList) async {
+    try {
+      await _wordListsCollection.doc(wordList.id).update(wordList.toMap());
+    } catch (e) {
+      rethrow;
+    }
+  }
 
   /// Update student color
   static Future<void> updateStudentColor(String studentId, Color newColor) async {

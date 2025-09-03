@@ -944,7 +944,7 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
                   ),
                   ButtonSegment<String>(
                     value: 'existing',
-                    label: Text('Saved List'),
+                    label: Text('Saved Lists'),
                   ),
                   ButtonSegment<String>(
                     value: 'new',
@@ -1076,10 +1076,12 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
                   maxLines: 3,
                   decoration: const InputDecoration(
                     labelText: 'Word Theme/Topic for AI',
-                    hintText: 'e.g., "simple animals", "easy action words", "basic colors"',
+                    hintText: 'e.g., "sight words for 1st grade" or "rhyming -at words"',
+                    helperText: 'Try: farm animals, CVC words, phonics patterns, math vocabulary',
                     prefixIcon: Icon(Icons.lightbulb),
                     alignLabelWithHint: true,
                     border: OutlineInputBorder(),
+                    helperMaxLines: 2,
                   ),
                 ),
               ] else ...[
@@ -1118,6 +1120,8 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
                     wordGrid = _getDefaultSimpleWordGrid();
                   } else if (wordListMode == 'existing' && selectedWordList != null) {
                     wordGrid = selectedWordList!.wordGrid;
+                    // Update the word list usage stats
+                    WordListService.updateLastUsed(selectedWordList!.id);
                   } else if (wordListMode == 'new') {
                     useAIWords = true;
                   }
@@ -1576,10 +1580,12 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
                   maxLines: 3,
                   decoration: const InputDecoration(
                     labelText: 'Word Theme/Topic for AI',
-                    hintText: 'e.g., "simple animals", "easy action words", "basic colors"',
+                    hintText: 'e.g., "sight words for 1st grade" or "rhyming -at words"',
+                    helperText: 'Try: farm animals, CVC words, phonics patterns, math vocabulary',
                     prefixIcon: Icon(Icons.lightbulb),
                     alignLabelWithHint: true,
                     border: OutlineInputBorder(),
+                    helperMaxLines: 2,
                   ),
                 ),
               ] else ...[
@@ -1618,6 +1624,8 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
                     wordGrid = _getDefaultSimpleWordGrid();
                   } else if (wordListMode == 'existing' && selectedWordList != null) {
                     wordGrid = selectedWordList!.wordGrid;
+                    // Update the word list usage stats
+                    WordListService.updateLastUsed(selectedWordList!.id);
                   } else if (wordListMode == 'new') {
                     useAIWords = true;
                   }
