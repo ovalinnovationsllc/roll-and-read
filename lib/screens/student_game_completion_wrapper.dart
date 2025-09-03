@@ -71,19 +71,11 @@ class _StudentGameCompletionWrapperState extends State<StudentGameCompletionWrap
         for (final player in widget.studentGame.players) {
           playerWordCounts[player.playerId] = gameState.getPlayerScore(player.playerId);
         }
-<<<<<<< HEAD
-=======
-        print('Got real word counts from shared game state: $playerWordCounts');
->>>>>>> 8fa281c869b61ec6fc67458e87ba6748b80c6078
       } else {
         // Fallback: give participation points if we can't get game state
         for (final player in widget.studentGame.players) {
           playerWordCounts[player.playerId] = 3; // Participation score
         }
-<<<<<<< HEAD
-=======
-        print('Using fallback participation scores');
->>>>>>> 8fa281c869b61ec6fc67458e87ba6748b80c6078
       }
       
       await StudentGameService.completeStudentGame(
@@ -91,13 +83,7 @@ class _StudentGameCompletionWrapperState extends State<StudentGameCompletionWrap
         playerWordCounts: playerWordCounts,
       );
       
-<<<<<<< HEAD
     } catch (e) {
-=======
-      print('Tracked completion for student game ${widget.studentGame.gameId}');
-    } catch (e) {
-      print('Error tracking game completion: $e');
->>>>>>> 8fa281c869b61ec6fc67458e87ba6748b80c6078
     }
   }
 
