@@ -2146,15 +2146,28 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
         statusIcon = Icons.help;
     }
 
-    return Card(
-      margin: const EdgeInsets.symmetric(vertical: 4),
-      elevation: 2,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Header row with game name, status and action buttons
+    return GestureDetector(
+      onTap: () {
+        // Navigate to the game screen
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => TeacherGameScreen(
+              user: widget.adminUser,
+              gameSession: game,
+            ),
+          ),
+        );
+      },
+      child: Card(
+        margin: const EdgeInsets.symmetric(vertical: 4),
+        elevation: 2,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header row with game name, status and action buttons
             Row(
               children: [
                 Container(
@@ -2216,6 +2229,17 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
                       ),
                     ),
                     const SizedBox(width: 8),
+                    // Add delete button for waiting games
+                    if (game.status == GameStatus.waitingForPlayers)
+                      IconButton(
+                        icon: const Icon(Icons.delete_outline),
+                        iconSize: 20,
+                        color: Colors.red[400],
+                        tooltip: 'Delete game',
+                        onPressed: () => _deleteGame(game),
+                        padding: const EdgeInsets.all(4),
+                        constraints: const BoxConstraints(),
+                      ),
                   ],
                 ),
               ],
@@ -2223,6 +2247,7 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
             
           ],
         ),
+      ),
       ),
     );
   }
