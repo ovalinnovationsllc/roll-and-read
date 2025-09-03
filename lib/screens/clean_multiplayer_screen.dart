@@ -99,6 +99,12 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
     if (_gameEnded) return;
     _gameEnded = true;
     
+    // Teachers (admins) don't get popups - they just monitor and can end the game
+    if (widget.user.isAdmin) {
+      print('DEBUG: Teacher monitoring - no popups shown');
+      return;
+    }
+    
     final winnerName = _getPlayerName(winnerId);
     // Ensure proper comparison by trimming and converting to same case if needed
     final isCurrentPlayer = winnerId.trim() == widget.user.id.trim();
@@ -137,6 +143,12 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
 
   void _showResultsDialog(int wordsRead, String winnerName, bool isCurrentPlayer) {
     if (!mounted) return;
+    
+    // Teachers (admins) don't get popups
+    if (widget.user.isAdmin) {
+      return;
+    }
+    
     showDialog(
       context: context,
       barrierDismissible: false,
