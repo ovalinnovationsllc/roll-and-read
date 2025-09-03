@@ -316,7 +316,6 @@ class _TeacherPronunciationMonitorState extends State<TeacherPronunciationMonito
   List<TextSpan> _buildLogNarrative(PronunciationLogEntry logEntry) {
     final isStealAttempt = logEntry.previousOwnerId != null;
     
-    print('DEBUG: Log entry - player: ${logEntry.playerName}, word: ${logEntry.word}, approved: ${logEntry.approved}, isSteal: $isStealAttempt, previousOwner: ${logEntry.previousOwnerId}');
     
     // Resolve previous owner name if needed
     String? previousOwnerName = logEntry.previousOwnerName;
@@ -791,7 +790,7 @@ class _TeacherPronunciationMonitorState extends State<TeacherPronunciationMonito
                         ),
                         const Spacer(),
                         Text(
-                          'DEBUG: ${gameState?.pronunciationLog.length ?? 0} attempts - GameState: ${gameState != null ? "exists" : "null"}',
+                          '${gameState?.pronunciationLog.length ?? 0} attempts',
                           style: TextStyle(
                             fontSize: 12,
                             color: Colors.grey[600],
@@ -883,7 +882,7 @@ class _TeacherPronunciationMonitorState extends State<TeacherPronunciationMonito
                                   ),
                                   const SizedBox(height: 8),
                                   Text(
-                                    'DEBUG: GameState is ${gameState == null ? "null" : "not null"}, Log length: ${gameState?.pronunciationLog.length ?? "N/A"}',
+                                    'Log length: ${gameState?.pronunciationLog.length ?? "N/A"}',
                                     style: const TextStyle(
                                       color: Colors.red,
                                       fontSize: 12,

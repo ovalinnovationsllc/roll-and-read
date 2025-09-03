@@ -9,7 +9,7 @@ import '../services/game_state_service.dart';
 import '../services/session_service.dart';
 import 'clean_multiplayer_screen.dart';
 import 'multiplayer_game_setup_page.dart';
-import 'teacher_pronunciation_monitor.dart';
+import 'teacher_game_screen.dart';
 
 class SimpleStudentSelector extends StatefulWidget {
   final String? teacherId;
@@ -121,7 +121,7 @@ class _SimpleStudentSelectorState extends State<SimpleStudentSelector> {
         
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(
-            builder: (context) => TeacherPronunciationMonitor(
+            builder: (context) => TeacherGameScreen(
               user: teacherUser,
               gameSession: gameSession,
             ),

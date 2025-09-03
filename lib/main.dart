@@ -14,7 +14,7 @@ import 'screens/user_login_page.dart';
 import 'screens/game_join_page.dart';
 import 'screens/student_join_game_page.dart';
 import 'screens/clean_multiplayer_screen.dart';
-import 'screens/teacher_pronunciation_monitor.dart';
+import 'screens/teacher_game_screen.dart';
 import 'models/user_model.dart';
 import 'models/game_session_model.dart';
 import 'services/session_service.dart';
@@ -217,7 +217,7 @@ class MyApp extends StatelessWidget {
             // Different screens for teacher vs student
             if (user.isAdmin) {
               return MaterialPageRoute(
-                builder: (context) => TeacherPronunciationMonitor(
+                builder: (context) => TeacherGameScreen(
                   user: user,
                   gameSession: gameSession,
                 ),
@@ -337,7 +337,7 @@ class MultiplayerGameWrapper extends StatelessWidget {
             final gameSession = data['gameSession'] as GameSessionModel;
             
             if (user.isAdmin) {
-              return TeacherPronunciationMonitor(
+              return TeacherGameScreen(
                 user: user,
                 gameSession: gameSession,
               );

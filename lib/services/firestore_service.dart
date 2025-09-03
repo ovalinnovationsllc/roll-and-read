@@ -358,7 +358,6 @@ class FirestoreService {
         final colorExists = existingStudents.any((student) => 
           student.playerColor?.value == playerColor.value);
         if (colorExists) {
-          print('❌ ERROR: Color already exists for this teacher');
           return null; // Color already taken
         }
         
@@ -366,7 +365,6 @@ class FirestoreService {
         final avatarExists = existingStudents.any((student) => 
           student.avatarUrl == avatarUrl);
         if (avatarExists) {
-          print('❌ ERROR: Avatar already exists for this teacher');
           return null; // Avatar already taken
         }
       }
@@ -460,11 +458,16 @@ class FirestoreService {
         .map((student) => student.avatarUrl!)
         .toSet();
     
-    // Common avatar emojis
+    // Common avatar emojis - 30 total to match color limit
     const allAvatars = [
+      // Animals (8)
       '🐱', '🐶', '🐭', '🐹', '🐰', '🦊', '🐻', '🐼', 
+      // Symbols (8)
       '⭐', '💖', '🦋', '☀️', '🌙', '🌈', '🎯', '🎨',
-      '🍎', '🍊', '🍋', '🍇', '🍓', '🥝', '🍪', '🎂'
+      // Food (8)
+      '🍎', '🍊', '🍋', '🍇', '🍓', '🥝', '🍪', '🎂',
+      // Additional 6 avatars
+      '🚀', '🎭', '🎪', '🎲', '🎸', '⚽'
     ];
     
     return allAvatars.where((avatar) => !usedAvatars.contains(avatar)).toList();

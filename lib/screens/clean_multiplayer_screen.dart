@@ -101,7 +101,6 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
     
     // Teachers (admins) don't get popups - they just monitor and can end the game
     if (widget.user.isAdmin) {
-      print('DEBUG: Teacher monitoring - no popups shown');
       return;
     }
     
@@ -109,15 +108,12 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
     // Ensure proper comparison by trimming and converting to same case if needed
     final isCurrentPlayer = winnerId.trim() == widget.user.id.trim();
     
-    print('DEBUG: Winner Dialog - winnerId: "$winnerId", currentUserId: "${widget.user.id}", isCurrentPlayer: $isCurrentPlayer');
-    print('DEBUG: winnerId length: ${winnerId.length}, currentUserId length: ${widget.user.id.length}');
     
     // Calculate personal stats for this player
     final wordsRead = _currentGameState?.getPlayerScore(widget.user.id) ?? 0;
     
     // Show celebration for winner or results dialog for others
     if (isCurrentPlayer) {
-      print('DEBUG: Showing confetti celebration for winner');
       // Show confetti celebration for the winner
       showDialog(
         context: context,
@@ -135,7 +131,6 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
         ),
       );
     } else {
-      print('DEBUG: Showing results dialog for loser');
       // Show results dialog for non-winners
       _showResultsDialog(wordsRead, winnerName, isCurrentPlayer);
     }
@@ -285,6 +280,11 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
     try {
       if (_currentGameState == null || _resultsSaved) return;
       
+      // Teachers (admins) don't save results - they handle it through game end functions
+      if (widget.user.isAdmin) {
+        return;
+      }
+      
       _resultsSaved = true; // Prevent duplicate saves
       
       final currentUser = widget.user;
@@ -292,19 +292,13 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
       final isWinner = winnerId == currentUser.id;
       final wordsRead = _currentGameState!.getPlayerScore(currentUser.id);
       
+      // NOTE: Firebase stats are now updated ONLY by teachers when they end the game
+      // Students no longer update Firebase to prevent duplicate updates
       
-      // Update student stats using the StudentModel approach
-      await FirestoreService.updateStudentStats(
-        studentId: currentUser.id,
-        wordsRead: wordsRead,
-        won: isWinner,
-      );
-      
-      
-      // Show success message
+      // Show completion message (no Firebase update)
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Results saved! Games played +1, Words read +$wordsRead${isWinner ? ', Games won +1' : ''}'),
+          content: Text('Game completed! You read $wordsRead words${isWinner ? ' and won!' : '.'}'),
           backgroundColor: AppColors.success,
         ),
       );
@@ -312,7 +306,7 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Failed to save results: $e'),
+          content: Text('Error: $e'),
           backgroundColor: AppColors.error,
         ),
       );
@@ -766,73 +760,6 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
     return player.displayName;
   }
 
-  Future<void> _handleGameEnd() async {
-    if (_currentGameState == null || _currentGameSession == null) return;
-
-    final winnerId = _currentGameState!.checkForWinner();
-    final hasWinner = winnerId != null;
-
-    try {
-      if (hasWinner) {
-        // Winner determined - update student stats and end game session
-        final gameSession = _currentGameSession!;
-        for (final player in gameSession.players) {
-          final wordsRead = _currentGameState!.getPlayerScore(player.userId);
-          await FirestoreService.updateStudentStats(
-            studentId: player.userId,
-            wordsRead: wordsRead,
-          );
-        }
-        
-        // End the game session with winner
-        await GameSessionService.endGameSession(
-          gameId: gameSession.gameId,
-          winnerId: winnerId,
-        );
-        
-        // Show completion message
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Game completed! ${_getPlayerName(winnerId)} wins. Stats updated.'),
-              backgroundColor: AppColors.success,
-              duration: const Duration(seconds: 3),
-            ),
-          );
-        }
-      } else {
-        // Game ended early - no points awarded, end game session without winner
-        await GameSessionService.endGameSession(
-          gameId: _currentGameSession!.gameId,
-          winnerId: null,
-        );
-        
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Game ended. No points awarded.'),
-              backgroundColor: AppColors.warning,
-              duration: Duration(seconds: 2),
-            ),
-          );
-        }
-      }
-
-      // Navigate back
-      if (mounted) {
-        Navigator.of(context).pop();
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: $e'),
-            backgroundColor: AppColors.error,
-          ),
-        );
-      }
-    }
-  }
 
   // Helper method to get player's assigned color from their stored color value
   Color _getPlayerColor(PlayerInGame player) {
@@ -860,17 +787,17 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
     
     return Scaffold(
       backgroundColor: AppColors.gameBackground,
-      appBar: AppBar(
+      appBar: widget.isTeacherMode ? null : AppBar(
         backgroundColor: AppColors.gamePrimary,
         foregroundColor: Colors.white,
         automaticallyImplyLeading: false,
-        title: widget.isTeacherMode ? Row(
+        title: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              'Game Code: $gameCode',
+              'Game: $gameCode',
               style: TextStyle(
-                fontSize: 20,
+                fontSize: 18,
                 fontWeight: FontWeight.bold,
               ),
             ),
@@ -890,12 +817,6 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
               tooltip: 'Copy code',
             ),
           ],
-        ) : Text(
-          'Roll and Read',
-          style: TextStyle(
-            fontSize: 24,
-            fontWeight: FontWeight.bold,
-          ),
         ),
         actions: [],
         centerTitle: true,
@@ -965,8 +886,6 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
               // Check for winner and show celebration (moved from build method)
               final winnerId = _currentGameState?.checkForWinner();
               if (winnerId != null && !_gameEnded) {
-                print('DEBUG: Winner detected in StreamBuilder! winnerId: $winnerId, currentUserId: ${widget.user.id}');
-                print('DEBUG: winnerId type: ${winnerId.runtimeType}, currentUserId type: ${widget.user.id.runtimeType}');
                 WidgetsBinding.instance.addPostFrameCallback((_) {
                   if (mounted) {
                     _showWinnerDialog(winnerId);
@@ -1848,9 +1767,9 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
       borderColor = Colors.purple.shade600; // Purple border for steal attempt
       textColor = Colors.black87;
     } else if (hasPending) {
-      // Pending pronunciation on unowned cell - yellow
-      backgroundColor = Colors.yellow.shade200;
-      borderColor = Colors.yellow.shade600;
+      // Pending pronunciation on unowned cell - light gray
+      backgroundColor = Colors.grey.shade300;
+      borderColor = Colors.grey.shade700;
     } else if (isContested) {
       // CONTESTED CELL - get both owner colors for diagonal split
       contestedColors = _getContestedColors(cellKey);
@@ -1923,8 +1842,8 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
             ),
             child: Stack(
               children: [
-                // Player name at top center for owned cells
-                if (isOwned) 
+                // Player name at top center for owned cells (only show in multiplayer games and not pending)
+                if (isOwned && (_currentGameSession?.players.length ?? 0) > 1 && !hasPending) 
                   Positioned(
                     top: 2,
                     left: 2,
@@ -2288,8 +2207,8 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
             ),
             child: Stack(
               children: [
-                // Player name at top center for owned cells (only show in multiplayer games)
-                if (isCompleted && cellOwner != null && (_currentGameSession?.players.length ?? 0) > 1) 
+                // Player name at top center for owned cells (only show in multiplayer games and not pending)
+                if (isCompleted && cellOwner != null && (_currentGameSession?.players.length ?? 0) > 1 && !(_currentGameState?.hasPendingPronunciation(cellKey) ?? false)) 
                   Positioned(
                     top: 2,
                     left: 2,
@@ -2609,6 +2528,18 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
   Future<void> _endGame() async {
     if (_currentGameState == null || _currentGameSession == null) return;
     
+    // Prevent multiple simultaneous executions
+    if (_resultsSaved) return;
+    
+    // Only teachers (admins) should be able to end games and trigger Firebase writes
+    if (!widget.user.isAdmin) {
+      // For non-admin users, just navigate away without Firebase updates
+      if (mounted) {
+        Navigator.of(context).pushReplacementNamed('/');
+      }
+      return;
+    }
+    
     // Check if game has a winner (completed)
     final winnerId = _currentGameState!.checkForWinner();
     final hasWinner = winnerId != null;
@@ -2643,6 +2574,9 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
         final gameSession = _currentGameSession!;
         
         if (hasWinner) {
+          // Only update Firebase when game is actually completed with a winner
+          _resultsSaved = true; // Mark as processed to prevent duplicate writes
+          
           // Game completed with winner - update stats
           for (final player in gameSession.players) {
             final wordsRead = _currentGameState!.getPlayerScore(player.userId);
@@ -2654,8 +2588,8 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
             );
           }
           
-          // End game session with winner
-          await GameSessionService.endGameSession(
+          // End game session without duplicate stats update
+          await GameSessionService.endGameSessionOnly(
             gameId: gameSession.gameId,
             winnerId: winnerId,
           );
@@ -2670,8 +2604,8 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
             );
           }
         } else {
-          // Game ended early - no stats update
-          await GameSessionService.endGameSession(
+          // Game ended early - no Firebase updates, just end session
+          await GameSessionService.endGameSessionOnly(
             gameId: gameSession.gameId,
             winnerId: null,
           );
@@ -2692,6 +2626,7 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
           Navigator.of(context).pop();
         }
       } catch (e) {
+        _resultsSaved = false; // Reset on error to allow retry
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -2706,58 +2641,6 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
   }
 
 
-  Widget _buildTeacherControls() {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        // Use same proportional sizing as student controls
-        final buttonWidth = constraints.maxWidth * 0.25;
-        final buttonHeight = constraints.maxHeight * 0.4;
-        
-        return Center(
-          child: SizedBox(
-            width: buttonWidth,
-            height: buttonHeight,
-            child: ElevatedButton(
-              onPressed: _handleGameEnd,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.error,
-                foregroundColor: Colors.white,
-                elevation: 2,
-                shadowColor: AppColors.error.withOpacity(0.2),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                padding: EdgeInsets.symmetric(
-                  horizontal: buttonWidth * 0.1,
-                  vertical: buttonHeight * 0.15,
-                ),
-              ),
-              child: FittedBox(
-                fit: BoxFit.scaleDown,
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.stop,
-                      size: buttonHeight * 0.3,
-                    ),
-                    SizedBox(width: buttonWidth * 0.05),
-                    Text(
-                      'End Game',
-                      style: TextStyle(
-                        fontSize: buttonHeight * 0.25,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
 
   void _showGameDeletedDialog() {
     showDialog(

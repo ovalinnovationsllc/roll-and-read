@@ -20,7 +20,7 @@ void safePrint(String message) {
 void safeError(String message) {
   try {
     if (kDebugMode) {
-      debugPrint('ERROR: $message');
+      debugPrint('$message');
     }
   } catch (e) {
     // Silently ignore print errors

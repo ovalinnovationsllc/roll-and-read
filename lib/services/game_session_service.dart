@@ -255,7 +255,29 @@ class GameSessionService {
     }
   }
 
-  // End a game session
+  // End a game session without updating Firebase stats (for when stats are handled elsewhere)
+  static Future<GameSessionModel?> endGameSessionOnly({
+    required String gameId,
+    String? winnerId,
+  }) async {
+    try {
+      final gameSession = await FirestoreService.getGameSession(gameId.toUpperCase());
+      
+      if (gameSession == null) {
+        return null;
+      }
+
+      // Just end the game session without updating player stats
+      final updatedGame = gameSession.endGame(winnerId: winnerId);
+      await FirestoreService.updateGameSession(updatedGame);
+      
+      return updatedGame;
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  // End a game session with automatic stats updates
   static Future<GameSessionModel?> endGameSession({
     required String gameId,
     String? winnerId,
@@ -270,13 +292,13 @@ class GameSessionService {
       // Get final game state to calculate player stats
       final gameState = await GameStateService.getGameState(gameId);
       
-      // Update student statistics for each player
-      if (gameState != null && gameSession.players.isNotEmpty) {
+      // Update student statistics for each player - ONLY if game was completed (has a winner)
+      if (winnerId != null && gameState != null && gameSession.players.isNotEmpty) {
         
         for (final player in gameSession.players) {
           final playerId = player.userId;
           final playerScore = gameState.getPlayerScore(playerId);
-          final isWinner = (winnerId != null && winnerId == playerId);
+          final isWinner = (winnerId == playerId);
           
           
           // Update student stats

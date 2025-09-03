@@ -3137,40 +3137,56 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
                   const SizedBox(height: 16),
                   
                   // Avatar Selection
-                  const Text(
-                    'Choose Avatar:',
-                    style: TextStyle(fontWeight: FontWeight.w500),
+                  Text(
+                    'Choose Avatar: (${availableAvatars.length} available)',
+                    style: const TextStyle(fontWeight: FontWeight.w500),
                   ),
                   const SizedBox(height: 8),
                   Container(
-                    height: 60,
-                    child: ListView.builder(
-                      scrollDirection: Axis.horizontal,
-                      itemCount: availableAvatars.length,
-                      itemBuilder: (context, index) {
-                        final emoji = availableAvatars[index];
-                        final isSelected = selectedAvatar == emoji;
-                        return GestureDetector(
-                          onTap: () => setDialogState(() => selectedAvatar = emoji),
-                          child: Container(
-                            width: 50,
-                            margin: const EdgeInsets.symmetric(horizontal: 4),
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(
-                                color: isSelected ? selectedColor : Colors.grey.shade300,
-                                width: isSelected ? 3 : 1,
+                    height: 250, // Fixed height to ensure scrolling works
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.grey.shade300),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.all(12),
+                      child: Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: availableAvatars.map((emoji) {
+                          final isSelected = selectedAvatar == emoji;
+                          return GestureDetector(
+                            onTap: () => setDialogState(() => selectedAvatar = emoji),
+                            child: Container(
+                              width: 50,
+                              height: 50,
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                  color: isSelected ? selectedColor : Colors.grey.shade300,
+                                  width: isSelected ? 3 : 1,
+                                ),
+                                color: isSelected ? selectedColor.withOpacity(0.1) : Colors.transparent,
+                              ),
+                              child: Center(
+                                child: Text(
+                                  emoji,
+                                  style: const TextStyle(fontSize: 24),
+                                ),
                               ),
                             ),
-                            child: Center(
-                              child: Text(
-                                emoji,
-                                style: const TextStyle(fontSize: 24),
-                              ),
-                            ),
-                          ),
-                        );
-                      },
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Scroll down to see all ${availableAvatars.length} avatars ↓',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey.shade600,
+                      fontStyle: FontStyle.italic,
                     ),
                   ),
                   const SizedBox(height: 16),

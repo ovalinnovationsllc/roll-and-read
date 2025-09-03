@@ -483,7 +483,6 @@ class GameStateModel {
   
   bool _hasPlayerWon(String playerId) {
     final cells = playerCompletedCells[playerId] ?? {};
-    print('DEBUG: Checking win condition for $playerId with ${cells.length} cells: $cells');
     if (cells.length < 6) return false; // Need at least 6 cells to win
     
     // Convert cell keys to coordinates
