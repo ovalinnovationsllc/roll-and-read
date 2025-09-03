@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
 import '../config/app_colors.dart';
 import '../models/student_model.dart';
+<<<<<<< HEAD
+=======
+import '../models/game_session_model.dart';
+import '../models/user_model.dart';
+>>>>>>> 8fa281c869b61ec6fc67458e87ba6748b80c6078
 import '../services/firestore_service.dart';
 import '../services/game_session_service.dart';
 import 'multiplayer_game_setup_page.dart';
@@ -16,6 +21,10 @@ class _SimpleGameJoinPageState extends State<SimpleGameJoinPage> {
   final _gameCodeController = TextEditingController();
   bool _isLoading = false;
   List<StudentModel> _students = [];
+<<<<<<< HEAD
+=======
+  bool _studentsLoaded = false;
+>>>>>>> 8fa281c869b61ec6fc67458e87ba6748b80c6078
 
   @override
   void initState() {
@@ -28,9 +37,19 @@ class _SimpleGameJoinPageState extends State<SimpleGameJoinPage> {
       final students = await FirestoreService.getAllActiveStudents();
       setState(() {
         _students = students;
+<<<<<<< HEAD
       });
     } catch (e) {
       // Error handled silently
+=======
+        _studentsLoaded = true;
+      });
+    } catch (e) {
+      print('Error loading students: $e');
+      setState(() {
+        _studentsLoaded = true;
+      });
+>>>>>>> 8fa281c869b61ec6fc67458e87ba6748b80c6078
     }
   }
 
@@ -58,6 +77,7 @@ class _SimpleGameJoinPageState extends State<SimpleGameJoinPage> {
         throw Exception('Game not found. Check the code and try again.');
       }
 
+<<<<<<< HEAD
       // Filter students to only include those belonging to the teacher who created the game
       final teachersStudents = _students.where((student) => student.teacherId == gameSession.createdBy).toList();
       
@@ -65,6 +85,8 @@ class _SimpleGameJoinPageState extends State<SimpleGameJoinPage> {
         throw Exception('No students from this teacher found. Only students can join games created by their teacher.');
       }
 
+=======
+>>>>>>> 8fa281c869b61ec6fc67458e87ba6748b80c6078
       if (mounted) {
         // Navigate to the multiplayer setup page where players can select themselves
         // For now, we'll show all students and let them pick. In a real implementation,
@@ -72,7 +94,11 @@ class _SimpleGameJoinPageState extends State<SimpleGameJoinPage> {
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(
             builder: (context) => MultiplayerGameSetupPage(
+<<<<<<< HEAD
               selectedStudents: teachersStudents.take(2).toList(), // Show first 2 students from this teacher
+=======
+              selectedStudents: _students.take(2).toList(), // Show first 2 students as example
+>>>>>>> 8fa281c869b61ec6fc67458e87ba6748b80c6078
               gameSession: gameSession,
             ),
           ),

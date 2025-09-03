@@ -36,11 +36,22 @@ class _TeacherPronunciationMonitorState extends State<TeacherPronunciationMonito
   void _listenToGameChanges() {
     GameStateService.getGameStateStream(widget.gameSession.gameId).listen((gameState) {
       if (mounted && gameState != null) {
+<<<<<<< HEAD
+=======
+        print('DEBUG: TeacherPronunciationMonitor - game state update:');
+        print('  gameId: ${widget.gameSession.gameId}');
+        print('  pendingPronunciations: ${gameState.pendingPronunciations.keys.toList()}');
+        print('  pendingCount: ${gameState.pendingPronunciations.length}');
+>>>>>>> 8fa281c869b61ec6fc67458e87ba6748b80c6078
         
         // Debug player scores for live updates
         if (_currentGameSession != null) {
           for (final player in _currentGameSession!.players) {
             final score = gameState.getPlayerScore(player.userId);
+<<<<<<< HEAD
+=======
+            print('  ${player.displayName} score: $score');
+>>>>>>> 8fa281c869b61ec6fc67458e87ba6748b80c6078
           }
         }
         
@@ -69,7 +80,13 @@ class _TeacherPronunciationMonitorState extends State<TeacherPronunciationMonito
         cellKey: cellKey,
         playerIds: playerIds,
       );
+<<<<<<< HEAD
     } catch (e) {
+=======
+      print('✅ Approved pronunciation for cell: $cellKey');
+    } catch (e) {
+      print('❌ Error approving pronunciation: $e');
+>>>>>>> 8fa281c869b61ec6fc67458e87ba6748b80c6078
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error approving pronunciation: $e')),
@@ -88,7 +105,13 @@ class _TeacherPronunciationMonitorState extends State<TeacherPronunciationMonito
         cellKey: cellKey,
         playerIds: playerIds,
       );
+<<<<<<< HEAD
     } catch (e) {
+=======
+      print('❌ Rejected pronunciation for cell: $cellKey');
+    } catch (e) {
+      print('❌ Error rejecting pronunciation: $e');
+>>>>>>> 8fa281c869b61ec6fc67458e87ba6748b80c6078
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error rejecting pronunciation: $e')),
@@ -258,7 +281,13 @@ class _TeacherPronunciationMonitorState extends State<TeacherPronunciationMonito
         );
       }
       
+<<<<<<< HEAD
     } catch (e) {
+=======
+      print('✅ All player stats updated successfully');
+    } catch (e) {
+      print('❌ Error updating player stats: $e');
+>>>>>>> 8fa281c869b61ec6fc67458e87ba6748b80c6078
       rethrow;
     }
   }
@@ -278,7 +307,13 @@ class _TeacherPronunciationMonitorState extends State<TeacherPronunciationMonito
         );
       }
       
+<<<<<<< HEAD
     } catch (e) {
+=======
+      print('✅ All player stats updated (game completed without winner)');
+    } catch (e) {
+      print('❌ Error updating player stats without winner: $e');
+>>>>>>> 8fa281c869b61ec6fc67458e87ba6748b80c6078
       rethrow;
     }
   }
@@ -313,6 +348,7 @@ class _TeacherPronunciationMonitorState extends State<TeacherPronunciationMonito
     }
   }
 
+<<<<<<< HEAD
   List<TextSpan> _buildLogNarrative(PronunciationLogEntry logEntry) {
     final isStealAttempt = logEntry.previousOwnerId != null;
     
@@ -417,6 +453,8 @@ class _TeacherPronunciationMonitorState extends State<TeacherPronunciationMonito
     }
   }
 
+=======
+>>>>>>> 8fa281c869b61ec6fc67458e87ba6748b80c6078
   @override
   Widget build(BuildContext context) {
     final gameSession = _currentGameSession ?? widget.gameSession;
@@ -759,8 +797,14 @@ class _TeacherPronunciationMonitorState extends State<TeacherPronunciationMonito
               ),
             ),
             
+<<<<<<< HEAD
             // Game Log Section - Always show for debugging
             Container(
+=======
+            // Game Log Section
+            if (gameState?.pronunciationLog.isNotEmpty ?? false)
+              Container(
+>>>>>>> 8fa281c869b61ec6fc67458e87ba6748b80c6078
                 margin: const EdgeInsets.all(16),
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
@@ -791,7 +835,11 @@ class _TeacherPronunciationMonitorState extends State<TeacherPronunciationMonito
                         ),
                         const Spacer(),
                         Text(
+<<<<<<< HEAD
                           'DEBUG: ${gameState?.pronunciationLog.length ?? 0} attempts - GameState: ${gameState != null ? "exists" : "null"}',
+=======
+                          '${gameState!.pronunciationLog.length} attempts',
+>>>>>>> 8fa281c869b61ec6fc67458e87ba6748b80c6078
                           style: TextStyle(
                             fontSize: 12,
                             color: Colors.grey[600],
@@ -802,11 +850,18 @@ class _TeacherPronunciationMonitorState extends State<TeacherPronunciationMonito
                     const SizedBox(height: 12),
                     SizedBox(
                       height: 200, // Fixed height for the log
+<<<<<<< HEAD
                       child: (gameState?.pronunciationLog.isNotEmpty ?? false)
                           ? ListView.builder(
                               itemCount: gameState!.pronunciationLog.length,
                               reverse: true, // Show newest first
                               itemBuilder: (context, index) {
+=======
+                      child: ListView.builder(
+                        itemCount: gameState.pronunciationLog.length,
+                        reverse: true, // Show newest first
+                        itemBuilder: (context, index) {
+>>>>>>> 8fa281c869b61ec6fc67458e87ba6748b80c6078
                           final logEntry = gameState.pronunciationLog.reversed.toList()[index];
                           final timeAgo = _formatTimeAgo(logEntry.resolvedTime);
                           
@@ -842,7 +897,24 @@ class _TeacherPronunciationMonitorState extends State<TeacherPronunciationMonito
                                       RichText(
                                         text: TextSpan(
                                           style: const TextStyle(color: Colors.black),
+<<<<<<< HEAD
                                           children: _buildLogNarrative(logEntry),
+=======
+                                          children: [
+                                            TextSpan(
+                                              text: logEntry.playerName,
+                                              style: const TextStyle(fontWeight: FontWeight.bold),
+                                            ),
+                                            const TextSpan(text: ' said '),
+                                            TextSpan(
+                                              text: '"${logEntry.word}"',
+                                              style: const TextStyle(
+                                                fontStyle: FontStyle.italic,
+                                                fontWeight: FontWeight.w500,
+                                              ),
+                                            ),
+                                          ],
+>>>>>>> 8fa281c869b61ec6fc67458e87ba6748b80c6078
                                         ),
                                       ),
                                       Text(
@@ -869,6 +941,7 @@ class _TeacherPronunciationMonitorState extends State<TeacherPronunciationMonito
                             ),
                           );
                         },
+<<<<<<< HEAD
                       )
                           : Center(
                               child: Column(
@@ -892,6 +965,9 @@ class _TeacherPronunciationMonitorState extends State<TeacherPronunciationMonito
                                 ],
                               ),
                             ),
+=======
+                      ),
+>>>>>>> 8fa281c869b61ec6fc67458e87ba6748b80c6078
                     ),
                   ],
                 ),

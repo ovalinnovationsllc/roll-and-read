@@ -33,8 +33,15 @@ class StudentPlayerService {
           .doc(profileId)
           .set(profile.toMap());
       
+<<<<<<< HEAD
       return profile;
     } catch (e) {
+=======
+      print('Created student player profile for $playerName with PIN: ${profile.simplePin}');
+      return profile;
+    } catch (e) {
+      print('Error creating player profile: $e');
+>>>>>>> 8fa281c869b61ec6fc67458e87ba6748b80c6078
       return null;
     }
   }
@@ -57,6 +64,10 @@ class StudentPlayerService {
       }
       return null;
     } catch (e) {
+<<<<<<< HEAD
+=======
+      print('Error finding player profile: $e');
+>>>>>>> 8fa281c869b61ec6fc67458e87ba6748b80c6078
       return null;
     }
   }
@@ -74,6 +85,10 @@ class StudentPlayerService {
       }
       return null;
     } catch (e) {
+<<<<<<< HEAD
+=======
+      print('Error getting player profile: $e');
+>>>>>>> 8fa281c869b61ec6fc67458e87ba6748b80c6078
       return null;
     }
   }
@@ -107,8 +122,15 @@ class StudentPlayerService {
           .doc(profileId)
           .update(updates);
       
+<<<<<<< HEAD
       return true;
     } catch (e) {
+=======
+      print('Updated profile stats for $profileId');
+      return true;
+    } catch (e) {
+      print('Error updating profile stats: $e');
+>>>>>>> 8fa281c869b61ec6fc67458e87ba6748b80c6078
       return false;
     }
   }
@@ -138,6 +160,10 @@ class StudentPlayerService {
           .map((doc) => StudentPlayerProfile.fromMap(doc.data()))
           .toList();
     } catch (e) {
+<<<<<<< HEAD
+=======
+      print('Error getting recent profiles: $e');
+>>>>>>> 8fa281c869b61ec6fc67458e87ba6748b80c6078
       return [];
     }
   }

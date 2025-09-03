@@ -36,6 +36,10 @@ class StudentGameService {
         .doc(gameId)
         .set(studentGame.toMap());
     
+<<<<<<< HEAD
+=======
+    print('Created student game with code: $gameCode');
+>>>>>>> 8fa281c869b61ec6fc67458e87ba6748b80c6078
     return studentGame;
   }
   
@@ -54,6 +58,10 @@ class StudentGameService {
       }
       return null;
     } catch (e) {
+<<<<<<< HEAD
+=======
+      print('Error finding game by code: $e');
+>>>>>>> 8fa281c869b61ec6fc67458e87ba6748b80c6078
       return null;
     }
   }
@@ -68,16 +76,28 @@ class StudentGameService {
     try {
       final game = await findGameByCode(gameCode);
       if (game == null) {
+<<<<<<< HEAD
+=======
+        print('Game not found with code: $gameCode');
+>>>>>>> 8fa281c869b61ec6fc67458e87ba6748b80c6078
         return null;
       }
       
       if (game.isFull) {
+<<<<<<< HEAD
+=======
+        print('Game is full');
+>>>>>>> 8fa281c869b61ec6fc67458e87ba6748b80c6078
         return null;
       }
       
       // Get next available slot
       final slot = game.nextAvailableSlot;
       if (slot == -1) {
+<<<<<<< HEAD
+=======
+        print('No available slots');
+>>>>>>> 8fa281c869b61ec6fc67458e87ba6748b80c6078
         return null;
       }
       
@@ -106,12 +126,20 @@ class StudentGameService {
           .doc(game.gameId)
           .update(updatedGame.toMap());
       
+<<<<<<< HEAD
+=======
+      print('Added player ${newPlayer.playerName} to game $gameCode');
+>>>>>>> 8fa281c869b61ec6fc67458e87ba6748b80c6078
       return {
         'game': updatedGame,
         'playerId': playerId,
       };
       
     } catch (e) {
+<<<<<<< HEAD
+=======
+      print('Error adding player to game: $e');
+>>>>>>> 8fa281c869b61ec6fc67458e87ba6748b80c6078
       return null;
     }
   }
@@ -126,6 +154,10 @@ class StudentGameService {
           .get();
       
       if (!gameDoc.exists) {
+<<<<<<< HEAD
+=======
+        print('Game not found: $gameId');
+>>>>>>> 8fa281c869b61ec6fc67458e87ba6748b80c6078
         return false;
       }
       
@@ -144,8 +176,15 @@ class StudentGameService {
         'startedAt': Timestamp.fromDate(DateTime.now()),
       });
       
+<<<<<<< HEAD
       return true;
     } catch (e) {
+=======
+      print('Started student game: $gameId with shared state for ${playerIds.length} players');
+      return true;
+    } catch (e) {
+      print('Error starting game: $e');
+>>>>>>> 8fa281c869b61ec6fc67458e87ba6748b80c6078
       return false;
     }
   }
@@ -181,8 +220,15 @@ class StudentGameService {
   static Future<bool> deleteGame(String gameId) async {
     try {
       await _firestore.collection(_collection).doc(gameId).delete();
+<<<<<<< HEAD
       return true;
     } catch (e) {
+=======
+      print('Deleted game: $gameId');
+      return true;
+    } catch (e) {
+      print('Error deleting game: $e');
+>>>>>>> 8fa281c869b61ec6fc67458e87ba6748b80c6078
       return false;
     }
   }
@@ -201,8 +247,15 @@ class StudentGameService {
           .doc(gameId)
           .update({'players': updatedPlayers.map((p) => p.toMap()).toList()});
       
+<<<<<<< HEAD
       return true;
     } catch (e) {
+=======
+      print('Removed player $playerId from game $gameId');
+      return true;
+    } catch (e) {
+      print('Error removing player: $e');
+>>>>>>> 8fa281c869b61ec6fc67458e87ba6748b80c6078
       return false;
     }
   }
@@ -241,11 +294,19 @@ class StudentGameService {
           totalPlayers: game.players.length,
         );
         
+<<<<<<< HEAD
+=======
+        print('Completed student game $gameId and updated teacher ${game.teacherId} stats');
+>>>>>>> 8fa281c869b61ec6fc67458e87ba6748b80c6078
         return true;
       }
       
       return false;
     } catch (e) {
+<<<<<<< HEAD
+=======
+      print('Error completing student game: $e');
+>>>>>>> 8fa281c869b61ec6fc67458e87ba6748b80c6078
       return false;
     }
   }
@@ -288,9 +349,17 @@ class StudentGameService {
           
           transaction.update(teacherRef, updates);
           
+<<<<<<< HEAD
         }
       });
     } catch (e) {
+=======
+          print('Updated teacher $teacherId stats: +1 game managed, +$totalWordsRead words facilitated');
+        }
+      });
+    } catch (e) {
+      print('Error updating teacher stats for student game: $e');
+>>>>>>> 8fa281c869b61ec6fc67458e87ba6748b80c6078
     }
   }
   

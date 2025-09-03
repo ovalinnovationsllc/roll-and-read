@@ -234,6 +234,10 @@ class GameStateModel {
     
     if (currentOwner != null) {
       // STEALING: Square is owned by another player
+<<<<<<< HEAD
+=======
+      print('🔥 STEAL: $playerId is stealing $cellKey from $currentOwner');
+>>>>>>> 8fa281c869b61ec6fc67458e87ba6748b80c6078
       
       // Remove cell from original owner's collection  
       updatedCells[currentOwner] = Set<String>.from(updatedCells[currentOwner]!)..remove(cellKey);
@@ -249,10 +253,15 @@ class GameStateModel {
       updatedScores[currentOwner] = (updatedScores[currentOwner] ?? 0) - 1;
       if (updatedScores[currentOwner]! < 0) updatedScores[currentOwner] = 0;
       
+<<<<<<< HEAD
+=======
+      print('  Scores after steal: $playerId=${updatedScores[playerId]}, $currentOwner=${updatedScores[currentOwner]}');
+>>>>>>> 8fa281c869b61ec6fc67458e87ba6748b80c6078
     } else {
       // Square is free - player takes it normally
       updatedCells[playerId] = Set<String>.from(updatedCells[playerId]!)..add(cellKey);
       updatedScores[playerId] = (updatedScores[playerId] ?? 0) + 1;
+      print('✅ CLAIM: $playerId claimed free cell $cellKey, score=${updatedScores[playerId]}');
     }
     
     return copyWith(
@@ -483,6 +492,7 @@ class GameStateModel {
   
   bool _hasPlayerWon(String playerId) {
     final cells = playerCompletedCells[playerId] ?? {};
+    print('DEBUG: Checking win condition for $playerId with ${cells.length} cells: $cells');
     if (cells.length < 6) return false; // Need at least 6 cells to win
     
     // Convert cell keys to coordinates
@@ -498,9 +508,17 @@ class GameStateModel {
       }
     }
     
+<<<<<<< HEAD
     
     // Check all possible lines of 6
     final hasWon = _checkLines(coordinates);
+=======
+    print('DEBUG: Parsed coordinates: $coordinates');
+    
+    // Check all possible lines of 6
+    final hasWon = _checkLines(coordinates);
+    print('DEBUG: Player $playerId won: $hasWon');
+>>>>>>> 8fa281c869b61ec6fc67458e87ba6748b80c6078
     return hasWon;
   }
   
@@ -513,6 +531,10 @@ class GameStateModel {
           count++;
         }
       }
+<<<<<<< HEAD
+=======
+      print('DEBUG: Row $row has $count cells');
+>>>>>>> 8fa281c869b61ec6fc67458e87ba6748b80c6078
       if (count >= 6) return true;
     }
     
@@ -524,6 +546,10 @@ class GameStateModel {
           count++;
         }
       }
+<<<<<<< HEAD
+=======
+      print('DEBUG: Column $col has $count cells');
+>>>>>>> 8fa281c869b61ec6fc67458e87ba6748b80c6078
       if (count >= 6) return true;
     }
     
