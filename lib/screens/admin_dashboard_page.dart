@@ -1833,7 +1833,11 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
       builder: (context, snapshot) {
         if (snapshot.data != null) {
           // Update the active games list without setState to avoid rebuild loop
-          _activeGames = snapshot.data!.where((game) => game.status == 'active').toList();
+          // Include both waiting and in-progress games (including single player)
+          _activeGames = snapshot.data!.where((game) => 
+            game.status == GameStatus.waitingForPlayers || 
+            game.status == GameStatus.inProgress
+          ).toList();
         }
         
         if (snapshot.connectionState == ConnectionState.waiting) {
@@ -2520,7 +2524,7 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Header with status and created time
+                  // Header with status, created time, and delete button
                   Row(
                     children: [
                       Container(
@@ -2550,6 +2554,17 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
                         ),
                       ),
                       const Spacer(),
+                      // Show delete button for waiting games
+                      if (game.status == GameStatus.waitingForPlayers) ...[
+                        IconButton(
+                          icon: const Icon(Icons.delete_outline),
+                          iconSize: 20,
+                          color: Colors.red[400],
+                          tooltip: 'Delete game',
+                          onPressed: () => _deleteGame(game),
+                        ),
+                        const SizedBox(width: 8),
+                      ],
                       Text(
                         _formatActiveGameTime(createdAt),
                         style: TextStyle(
