@@ -43,7 +43,7 @@ class UserModel {
     required String id,
     required String displayName,
     required String emailAddress,
-    required String pin,
+    String? pin, // Allow null for Firebase Auth teachers
   }) {
     return UserModel(
       id: id,

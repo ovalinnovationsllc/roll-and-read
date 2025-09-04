@@ -13,7 +13,7 @@ class FirebaseCleanup {
       // 2. Handle wordLists vs word_lists  
       await _consolidateCollections('word_lists', 'wordLists', 'Word Lists');
       
-      // 3. Delete obsolete student-specific collections (now using unified 'games' collection)
+      // 3. Delete obsolete collections (no longer needed)
       await _deleteCollection('student_games');
       await _deleteCollection('student_player_profiles');
       
@@ -21,7 +21,7 @@ class FirebaseCleanup {
       await _deleteCollection('kid_games');
       await _deleteCollection('kid_player_profiles');
       
-      // 5. Keep only: games, gameStates, students, users, wordLists
+      // 5. Keep only: games, gameStates, users, wordLists
       
     } catch (e) {
       rethrow;

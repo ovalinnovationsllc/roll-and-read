@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../config/app_colors.dart';
-import '../services/local_user_service.dart';
 import '../services/session_service.dart';
 import '../services/firestore_service.dart';
 import '../models/user_model.dart';
@@ -17,9 +17,11 @@ class AdminLoginPage extends StatefulWidget {
 class _AdminLoginPageState extends State<AdminLoginPage> {
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
   bool _isLoading = false;
   bool _rememberEmail = true;
   String? _errorMessage;
+  bool _obscurePassword = true;
   static const String _savedEmailKey = 'roll_and_read_saved_teacher_email';
 
   @override
@@ -31,6 +33,7 @@ class _AdminLoginPageState extends State<AdminLoginPage> {
   @override
   void dispose() {
     _emailController.dispose();
+    _passwordController.dispose();
     super.dispose();
   }
 
@@ -74,40 +77,78 @@ class _AdminLoginPageState extends State<AdminLoginPage> {
 
     try {
       final email = _emailController.text.trim();
+      final password = _passwordController.text.trim();
       
       // Save email if remember is checked
       await _saveEmailIfNeeded(email);
       
-      // Try to get user with Firebase ready check and retry logic
       UserModel? user;
-      int attempts = 0;
-      const maxAttempts = 3;
       
-      while (user == null && attempts < maxAttempts) {
-        attempts++;
-        
-        if (!FirestoreService.isFirebaseReady) {
-          // Wait a bit for Firebase to initialize
-          await Future.delayed(Duration(milliseconds: 1000 * attempts));
-          continue;
+      // Hybrid authentication: Firebase Auth first, fallback to email-only
+      if (password == 'migrate123') {
+        // Pre-migration fallback: email-only lookup
+        user = await FirestoreService.getUserByEmail(email);
+        if (user != null) {
+          print('✅ Pre-migration email-only login successful');
+        } else {
+          setState(() {
+            _errorMessage = 'Teacher email not found. Please check your email address.';
+            _isLoading = false;
+          });
+          return;
         }
-        
+      } else {
+        // Firebase Auth login
         try {
-          user = await LocalUserService.getUserByEmail(email);
-          break;
-        } catch (e) {
-          if (attempts == maxAttempts) rethrow;
-          await Future.delayed(Duration(milliseconds: 1000 * attempts));
+          final credential = await FirebaseAuth.instance.signInWithEmailAndPassword(
+            email: email,
+            password: password,
+          );
+          
+          if (credential.user != null) {
+            // Get user profile using Firebase UID
+            user = await FirestoreService.getUserById(credential.user!.uid);
+            if (user != null) {
+              print('✅ Firebase Auth login successful');
+            } else {
+              // User authenticated but no profile found
+              setState(() {
+                _errorMessage = 'Teacher profile not found. Please contact support to complete setup.';
+                _isLoading = false;
+              });
+              return;
+            }
+          }
+        } on FirebaseAuthException catch (e) {
+          String errorMessage = 'Login failed. ';
+          switch (e.code) {
+            case 'user-not-found':
+              errorMessage += 'No account found with this email. Use "migrate123" for pre-migration access.';
+              break;
+            case 'wrong-password':
+              errorMessage += 'Incorrect password. Use "migrate123" for pre-migration access.';
+              break;
+            case 'invalid-email':
+              errorMessage += 'Invalid email format.';
+              break;
+            case 'too-many-requests':
+              errorMessage += 'Too many failed attempts. Please try again later.';
+              break;
+            default:
+              errorMessage += 'Please try again or use "migrate123" for pre-migration access.';
+          }
+          
+          setState(() {
+            _errorMessage = errorMessage;
+            _isLoading = false;
+          });
+          return;
         }
       }
       
       if (user == null) {
         setState(() {
-          if (!FirestoreService.isFirebaseReady) {
-            _errorMessage = 'Unable to connect to server. Please check your internet connection and try again.';
-          } else {
-            _errorMessage = 'User not found. Please check your email address.';
-          }
+          _errorMessage = 'User profile not found. Please contact support.';
           _isLoading = false;
         });
         return;
@@ -130,15 +171,368 @@ class _AdminLoginPageState extends State<AdminLoginPage> {
         Navigator.pushReplacementNamed(context, '/admin-dashboard');
       }
     } catch (e) {
+      print('Login error: $e');
       setState(() {
-        if (!FirestoreService.isFirebaseReady) {
-          _errorMessage = 'Unable to connect to server. Please check your internet connection and try again.';
-        } else {
-          _errorMessage = 'An error occurred. Please try again.';
-        }
+        _errorMessage = 'An unexpected error occurred. Please try again.';
         _isLoading = false;
       });
     }
+  }
+
+  void _showCreateTeacherDialog(BuildContext context) {
+    final nameController = TextEditingController();
+    final emailController = TextEditingController();
+    final passwordController = TextEditingController();
+    final confirmPasswordController = TextEditingController();
+    
+    bool isCreating = false;
+    bool obscurePassword = true;
+    bool obscureConfirm = true;
+    String? errorMessage;
+    
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          
+          return AlertDialog(
+            title: const Text('Create New Teacher Account'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Create a secure teacher account to manage your classroom games and students.',
+                    style: TextStyle(fontSize: 14, color: Colors.grey),
+                  ),
+                  const SizedBox(height: 20),
+                  TextFormField(
+                    controller: nameController,
+                    decoration: const InputDecoration(
+                      labelText: 'Teacher Name',
+                      hintText: 'e.g., Mrs. Smith',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.person),
+                    ),
+                    enabled: !isCreating,
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: emailController,
+                    keyboardType: TextInputType.emailAddress,
+                    decoration: const InputDecoration(
+                      labelText: 'Email Address',
+                      hintText: 'teacher@school.edu',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.email),
+                    ),
+                    enabled: !isCreating,
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: passwordController,
+                    obscureText: obscurePassword,
+                    decoration: InputDecoration(
+                      labelText: 'Password',
+                      hintText: 'At least 6 characters',
+                      border: const OutlineInputBorder(),
+                      prefixIcon: const Icon(Icons.lock),
+                      suffixIcon: IconButton(
+                        icon: Icon(obscurePassword ? Icons.visibility : Icons.visibility_off),
+                        onPressed: () {
+                          setDialogState(() {
+                            obscurePassword = !obscurePassword;
+                          });
+                        },
+                      ),
+                    ),
+                    enabled: !isCreating,
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: confirmPasswordController,
+                    obscureText: obscureConfirm,
+                    decoration: InputDecoration(
+                      labelText: 'Confirm Password',
+                      border: const OutlineInputBorder(),
+                      prefixIcon: const Icon(Icons.lock_outline),
+                      suffixIcon: IconButton(
+                        icon: Icon(obscureConfirm ? Icons.visibility : Icons.visibility_off),
+                        onPressed: () {
+                          setDialogState(() {
+                            obscureConfirm = !obscureConfirm;
+                          });
+                        },
+                      ),
+                    ),
+                    enabled: !isCreating,
+                  ),
+                  if (errorMessage != null) ...[
+                    const SizedBox(height: 16),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.red.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.red.shade200),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.error_outline, color: Colors.red.shade600, size: 20),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              errorMessage!,
+                              style: TextStyle(
+                                color: Colors.red.shade700,
+                                fontSize: 14,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: isCreating ? null : () {
+                  Navigator.of(context).pop();
+                },
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: isCreating ? null : () async {
+                  // Validate input
+                  final name = nameController.text.trim();
+                  final email = emailController.text.trim();
+                  final password = passwordController.text;
+                  final confirmPassword = confirmPasswordController.text;
+                  
+                  if (name.isEmpty || email.isEmpty || password.isEmpty) {
+                    setDialogState(() {
+                      errorMessage = 'Please fill in all fields';
+                    });
+                    return;
+                  }
+                  
+                  if (password != confirmPassword) {
+                    setDialogState(() {
+                      errorMessage = 'Passwords do not match';
+                    });
+                    return;
+                  }
+                  
+                  if (password.length < 6) {
+                    setDialogState(() {
+                      errorMessage = 'Password must be at least 6 characters';
+                    });
+                    return;
+                  }
+                  
+                  if (!email.contains('@') || !email.contains('.')) {
+                    setDialogState(() {
+                      errorMessage = 'Please enter a valid email address';
+                    });
+                    return;
+                  }
+                  
+                  setDialogState(() {
+                    isCreating = true;
+                    errorMessage = null;
+                  });
+                  
+                  try {
+                    // Create user account
+                    final credential = await FirebaseAuth.instance.createUserWithEmailAndPassword(
+                      email: email,
+                      password: password,
+                    );
+                    
+                    if (credential.user != null) {
+                      // Update user profile
+                      await credential.user!.updateDisplayName(name);
+                      
+                      // Create teacher profile
+                      final firestoreUser = await FirestoreService.createTeacherWithFirebaseUID(
+                        firebaseUID: credential.user!.uid,
+                        email: email,
+                        displayName: name,
+                      );
+                      
+                      if (firestoreUser == null) {
+                        throw Exception('Failed to create teacher profile');
+                      }
+                      
+                      setDialogState(() {
+                        isCreating = false;
+                      });
+                      
+                      if (mounted) {
+                        Navigator.of(context).pop();
+                        // Show success dialog
+                        showDialog(
+                          context: context,
+                          builder: (context) => AlertDialog(
+                            title: Row(
+                              children: [
+                                Icon(
+                                  Icons.check_circle,
+                                  color: Colors.green,
+                                  size: 28,
+                                ),
+                                const SizedBox(width: 8),
+                                const Text('Account Created!'),
+                              ],
+                            ),
+                            content: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'Your teacher account has been successfully created and is ready to use.',
+                                  style: TextStyle(fontSize: 16),
+                                ),
+                                const SizedBox(height: 16),
+                                Container(
+                                  padding: const EdgeInsets.all(16),
+                                  decoration: BoxDecoration(
+                                    color: Colors.green.shade50,
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(color: Colors.green.shade200),
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          Icon(Icons.person, color: Colors.green.shade700, size: 20),
+                                          const SizedBox(width: 8),
+                                          Text(
+                                            name,
+                                            style: const TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 16,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Row(
+                                        children: [
+                                          Icon(Icons.email, color: Colors.green.shade700, size: 20),
+                                          const SizedBox(width: 8),
+                                          Expanded(
+                                            child: Text(
+                                              email,
+                                              style: TextStyle(
+                                                color: Colors.grey[600],
+                                                fontSize: 14,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 12),
+                                      Container(
+                                        padding: const EdgeInsets.all(8),
+                                        decoration: BoxDecoration(
+                                          color: Colors.green.shade100,
+                                          borderRadius: BorderRadius.circular(4),
+                                        ),
+                                        child: Row(
+                                          children: [
+                                            Icon(Icons.info_outline, color: Colors.green.shade800, size: 16),
+                                            const SizedBox(width: 6),
+                                            const Expanded(
+                                              child: Text(
+                                                'You can now login with your email and password',
+                                                style: TextStyle(
+                                                  fontSize: 12,
+                                                  fontWeight: FontWeight.w500,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                            actions: [
+                              ElevatedButton(
+                                onPressed: () => Navigator.of(context).pop(),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.green,
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                                ),
+                                child: const Text(
+                                  'Start Teaching!',
+                                  style: TextStyle(fontWeight: FontWeight.w600),
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      }
+                    }
+                  } catch (e) {
+                    setDialogState(() {
+                      isCreating = false;
+                      if (e is FirebaseAuthException) {
+                        switch (e.code) {
+                          case 'email-already-in-use':
+                            errorMessage = 'This email address is already registered. Please use a different email or try logging in instead.';
+                            break;
+                          case 'invalid-email':
+                            errorMessage = 'Please enter a valid email address.';
+                            break;
+                          case 'weak-password':
+                            errorMessage = 'Please choose a stronger password with at least 6 characters.';
+                            break;
+                          case 'network-request-failed':
+                            errorMessage = 'Unable to connect to the server. Please check your internet connection and try again.';
+                            break;
+                          default:
+                            errorMessage = 'Unable to create account. Please try again or contact support if the problem persists.';
+                        }
+                      } else if (e.toString().contains('permission-denied')) {
+                        errorMessage = 'Account setup incomplete. Please contact your system administrator for assistance.';
+                      } else if (e.toString().contains('network')) {
+                        errorMessage = 'Network connection problem. Please check your internet and try again.';
+                      } else {
+                        errorMessage = 'Unable to complete account setup. Please try again in a few moments.';
+                      }
+                    });
+                  }
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.green,
+                  foregroundColor: Colors.white,
+                ),
+                child: isCreating 
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Text('Create Teacher'),
+              ),
+            ],
+          );
+        }
+      ),
+    );
   }
 
   @override
@@ -188,7 +582,7 @@ class _AdminLoginPageState extends State<AdminLoginPage> {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'Enter your email to continue',
+                        'Enter your email and password to access your account.',
                         style: TextStyle(
                           fontSize: isTablet ? 16 : 14,
                           color: AppColors.textSecondary,
@@ -219,6 +613,43 @@ class _AdminLoginPageState extends State<AdminLoginPage> {
                           if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$')
                               .hasMatch(value)) {
                             return 'Please enter a valid email';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 16),
+                      TextFormField(
+                        controller: _passwordController,
+                        obscureText: _obscurePassword,
+                        enabled: !_isLoading,
+                        textInputAction: TextInputAction.done,
+                        onFieldSubmitted: (_) => _handleLogin(),
+                        decoration: InputDecoration(
+                          labelText: 'Password',
+                          hintText: 'Enter password',
+                          prefixIcon: const Icon(Icons.lock),
+                          suffixIcon: IconButton(
+                            icon: Icon(
+                              _obscurePassword ? Icons.visibility : Icons.visibility_off,
+                            ),
+                            onPressed: () {
+                              setState(() {
+                                _obscurePassword = !_obscurePassword;
+                              });
+                            },
+                          ),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          filled: true,
+                          fillColor: AppColors.white,
+                        ),
+                        validator: (value) {
+                          if (value == null || value.isEmpty) {
+                            return 'Please enter your password';
+                          }
+                          if (value.length < 6) {
+                            return 'Password must be at least 6 characters';
                           }
                           return null;
                         },
@@ -322,13 +753,14 @@ class _AdminLoginPageState extends State<AdminLoginPage> {
                         onPressed: _isLoading
                             ? null
                             : () {
-                                Navigator.pop(context);
+                                _showCreateTeacherDialog(context);
                               },
                         child: Text(
-                          'Back to Game',
+                          'Create New Teacher',
                           style: TextStyle(
-                            color: Colors.grey.shade700,
+                            color: AppColors.adminPrimary,
                             fontSize: isTablet ? 16 : 14,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
                       ),

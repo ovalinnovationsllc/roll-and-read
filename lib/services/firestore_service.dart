@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../models/user_model.dart';
@@ -12,7 +13,6 @@ import '../utils/safe_print.dart';
 class FirestoreService {
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   static final CollectionReference _usersCollection = _firestore.collection('users');
-  static final CollectionReference _studentsCollection = _firestore.collection('students');
   static final CollectionReference _gamesCollection = _firestore.collection('games');
   static final CollectionReference _gameStatesCollection = _firestore.collection('gameStates');
   static final CollectionReference _wordListsCollection = _firestore.collection('wordLists');
@@ -82,7 +82,61 @@ class FirestoreService {
     }
   }
 
-  /// Create a new user
+  /// Get user by Firebase UID (for Firebase Auth integration)
+  static Future<UserModel?> getUserById(String uid) async {
+    if (!_isFirebaseReady) {
+      safePrint('Firebase not ready, returning null for getUserById');
+      return null;
+    }
+
+    try {
+      safePrint('🔍 FirestoreService: Looking for user with UID: "$uid"');
+      
+      final doc = await _usersCollection.doc(uid).get();
+      
+      if (doc.exists && doc.data() != null) {
+        final data = doc.data() as Map<String, dynamic>;
+        data['id'] = doc.id;
+        safePrint('🔍 FirestoreService: User found by UID - ${data['displayName']} (${data['emailAddress']})');
+        return UserModel.fromMap(data);
+      }
+      
+      safePrint('🔍 FirestoreService: No user found with UID: "$uid"');
+      return null;
+    } catch (e) {
+      safePrint('Error getting user by UID: ${e.runtimeType} - ${e.toString()}');
+      return null;
+    }
+  }
+
+  /// Create a new teacher with Firebase UID (requires Firebase Auth account)
+  static Future<UserModel?> createTeacherWithFirebaseUID({
+    required String firebaseUID,
+    required String email,
+    required String displayName,
+  }) async {
+    try {
+      safePrint('🔄 Creating teacher with Firebase UID: $firebaseUID');
+      final docRef = _usersCollection.doc(firebaseUID);
+      
+      final user = UserModel.createTeacher(
+        id: firebaseUID,
+        displayName: displayName,
+        emailAddress: email.toLowerCase().trim(),
+        pin: null, // No PIN needed for Firebase Auth teachers
+      );
+
+      safePrint('📝 Writing teacher data to Firestore: ${user.toMap()}');
+      await docRef.set(user.toMap());
+      safePrint('✅ Successfully created teacher in Firestore');
+      return user;
+    } catch (e) {
+      safePrint('❌ Error creating teacher in Firestore: $e');
+      rethrow; // Re-throw the error so the caller can handle it
+    }
+  }
+
+  /// Create a new user (legacy method - deprecated, use createTeacherWithFirebaseUID)
   static Future<UserModel?> createUser({
     required String email,
     required String displayName,
@@ -590,35 +644,6 @@ class FirestoreService {
     }
   }
 
-  /// Fix existing students by creating missing user documents
-  static Future<void> fixExistingStudents() async {
-    try {
-      final QuerySnapshot studentsSnapshot = await _studentsCollection
-          .where('isActive', isEqualTo: true)
-          .get();
-      
-      for (final doc in studentsSnapshot.docs) {
-        final student = StudentModel.fromMap(doc.data() as Map<String, dynamic>);
-        
-        // Check if user document exists
-        final userDoc = await _usersCollection.doc(student.studentId).get();
-        if (!userDoc.exists) {
-          // Create missing user document
-          final user = UserModel.createStudent(
-            id: student.studentId,
-            displayName: student.displayName,
-            teacherId: student.teacherId,
-            playerColor: student.playerColor,
-            avatarUrl: student.avatarUrl,
-          );
-          
-          await _usersCollection.doc(student.studentId).set(user.toMap());
-        }
-      }
-    } catch (e) {
-    }
-  }
-
   /// Create sample students for demo purposes
   static Future<void> createSampleStudents(String teacherId) async {
     try {
@@ -1016,8 +1041,13 @@ class FirestoreService {
   /// Clean up completed games older than 5 days
   static Future<void> cleanupOldCompletedGames() async {
     try {
+      safePrint('🧹 Starting cleanup of old completed games...');
+      
+      // Cleanup running without Firebase Auth (pre-migration mode)
+      safePrint('🔐 Cleanup running in pre-migration mode (no Firebase Auth required)');
       final fiveDaysAgo = DateTime.now().subtract(const Duration(days: 5));
       final cutoffTimestamp = Timestamp.fromDate(fiveDaysAgo);
+      safePrint('🗓️ Cleaning games completed before: ${fiveDaysAgo.toString()}');
       
       // Get completed games older than 5 days
       final snapshot = await _gamesCollection
@@ -1025,13 +1055,17 @@ class FirestoreService {
           .where('endedAt', isLessThan: cutoffTimestamp)
           .get();
       
+      safePrint('📊 Found ${snapshot.docs.length} old completed games to clean up');
+      
       if (snapshot.docs.isEmpty) {
+        safePrint('✨ No old games to clean up');
         return;
       }
       
       // Delete in batches (Firestore limit is 500 operations per batch)
       const batchSize = 400; // Leave some margin
       final docs = snapshot.docs;
+      int totalDeleted = 0;
       
       for (int i = 0; i < docs.length; i += batchSize) {
         final batch = _firestore.batch();
@@ -1047,162 +1081,60 @@ class FirestoreService {
         }
         
         await batch.commit();
+        totalDeleted += (endIndex - i);
+        safePrint('🗑️ Deleted batch ${(i ~/ batchSize) + 1}: ${totalDeleted}/${docs.length} games cleaned');
       }
       
+      safePrint('✅ Successfully cleaned up $totalDeleted old games and their states');
+      
     } catch (e) {
-      // Silently fail cleanup - don't break the app if cleanup fails
+      safePrint('❌ Error during game cleanup: ${e.toString()}');
     }
   }
 
   /// Clean up all old data (games, game states)
   static Future<void> performMaintenanceCleanup() async {
     try {
+      safePrint('🚀 Starting maintenance cleanup...');
+      final stopwatch = Stopwatch()..start();
+      
       await Future.wait([
         cleanupOldCompletedGames(),
         _cleanupOrphanedGameStates(),
       ]);
+      
+      stopwatch.stop();
+      safePrint('⏱️ Maintenance cleanup completed in ${stopwatch.elapsedMilliseconds}ms');
     } catch (e) {
-      // Silently fail cleanup
+      safePrint('❌ Error during maintenance cleanup: ${e.toString()}');
     }
   }
 
-  /// MIGRATION: Consolidate students collection into users collection
-  static Future<Map<String, dynamic>> migrateStudentsToUsers() async {
-    try {
-      // Step 1: Get all students from students collection
-      final studentsSnapshot = await _studentsCollection.get();
-      
-      int migrated = 0;
-      int updated = 0;
-      int errors = 0;
-      
-      for (final studentDoc in studentsSnapshot.docs) {
-        try {
-          final studentData = studentDoc.data() as Map<String, dynamic>;
-          final studentId = studentDoc.id;
-          
-          // Check if user already exists
-          final existingUser = await _usersCollection.doc(studentId).get();
-          
-          if (existingUser.exists) {
-            // Update existing user with student fields
-            await _usersCollection.doc(studentId).update({
-              'teacherId': studentData['teacherId'],
-              'gamesPlayed': studentData['gamesPlayed'] ?? 0,
-              'gamesWon': studentData['gamesWon'] ?? 0,
-              'wordsRead': studentData['wordsRead'] ?? 0,
-              'lastPlayedAt': studentData['lastPlayedAt'],
-              'isStudent': true,
-            });
-            updated++;
-          } else {
-            // Create new user from student data
-            final userData = {
-              'id': studentId,
-              'displayName': studentData['displayName'] ?? 'Student',
-              'emailAddress': '${studentId}@student.local',
-              'isAdmin': false,
-              'teacherId': studentData['teacherId'],
-              'gamesPlayed': studentData['gamesPlayed'] ?? 0,
-              'gamesWon': studentData['gamesWon'] ?? 0,
-              'wordsRead': studentData['wordsRead'] ?? 0,
-              'createdAt': studentData['createdAt'] ?? Timestamp.now(),
-              'lastPlayedAt': studentData['lastPlayedAt'],
-              'playerColor': studentData['playerColor'],
-              'avatarUrl': studentData['avatarUrl'],
-              'isActive': studentData['isActive'] ?? true,
-              'isStudent': true,
-            };
-            
-            await _usersCollection.doc(studentId).set(userData);
-            migrated++;
-          }
-        } catch (e) {
-          errors++;
-        }
-      }
-      
-      return {
-        'success': true,
-        'totalStudents': studentsSnapshot.docs.length,
-        'migrated': migrated,
-        'updated': updated,
-        'errors': errors,
-      };
-    } catch (e) {
-      return {
-        'success': false,
-        'error': e.toString(),
-      };
-    }
-  }
-
-  /// Delete all documents from the students collection
-  static Future<Map<String, dynamic>> deleteStudentsCollection() async {
-    try {
-      safePrint('🗑️  Starting deletion of students collection...');
-      
-      // Get all documents in the students collection
-      final studentsSnapshot = await _studentsCollection.get();
-      
-      if (studentsSnapshot.docs.isEmpty) {
-        return {
-          'success': true,
-          'message': 'Students collection is already empty',
-          'deletedCount': 0,
-        };
-      }
-      
-      safePrint('📊 Found ${studentsSnapshot.docs.length} documents to delete');
-      
-      // Delete documents in batches (Firestore batch limit is 500)
-      const batchSize = 400; // Use 400 to be safe
-      int deletedCount = 0;
-      
-      final docs = studentsSnapshot.docs;
-      for (int i = 0; i < docs.length; i += batchSize) {
-        final batch = _firestore.batch();
-        final endIndex = (i + batchSize < docs.length) ? i + batchSize : docs.length;
-        
-        for (int j = i; j < endIndex; j++) {
-          batch.delete(docs[j].reference);
-        }
-        
-        safePrint('🔥 Deleting batch ${(i ~/ batchSize) + 1}...');
-        await batch.commit();
-        deletedCount += (endIndex - i);
-        
-        safePrint('✅ Deleted $deletedCount/${docs.length} documents');
-      }
-      
-      safePrint('🎉 Successfully deleted all $deletedCount documents from students collection!');
-      
-      return {
-        'success': true,
-        'message': 'Successfully deleted students collection',
-        'deletedCount': deletedCount,
-      };
-    } catch (e) {
-      safePrint('❌ Error deleting students collection: $e');
-      return {
-        'success': false,
-        'error': e.toString(),
-      };
-    }
-  }
 
   /// Clean up game states that no longer have corresponding games
   static Future<void> _cleanupOrphanedGameStates() async {
     try {
+      safePrint('🔍 Checking for orphaned game states...');
+      
+      // Cleanup running without Firebase Auth (pre-migration mode)
+      safePrint('🔐 Cleanup running in pre-migration mode (no Firebase Auth required)');
       final gameStatesSnapshot = await _gameStatesCollection.get();
-      if (gameStatesSnapshot.docs.isEmpty) return;
+      safePrint('📊 Found ${gameStatesSnapshot.docs.length} total game states to check');
+      
+      if (gameStatesSnapshot.docs.isEmpty) {
+        safePrint('✨ No game states found');
+        return;
+      }
       
       const batchSize = 400;
       final docs = gameStatesSnapshot.docs;
+      int totalOrphaned = 0;
+      int totalChecked = 0;
       
       for (int i = 0; i < docs.length; i += batchSize) {
         final batch = _firestore.batch();
         final endIndex = (i + batchSize < docs.length) ? i + batchSize : docs.length;
+        int orphanedInBatch = 0;
         
         for (int j = i; j < endIndex; j++) {
           final gameStateDoc = docs[j];
@@ -1213,13 +1145,25 @@ class FirestoreService {
           if (!gameDoc.exists) {
             // Game doesn't exist, delete the orphaned game state
             batch.delete(gameStateDoc.reference);
+            orphanedInBatch++;
           }
+          totalChecked++;
         }
         
-        await batch.commit();
+        if (orphanedInBatch > 0) {
+          await batch.commit();
+          totalOrphaned += orphanedInBatch;
+          safePrint('🗑️ Cleaned $orphanedInBatch orphaned states in batch ${(i ~/ batchSize) + 1}');
+        }
+      }
+      
+      if (totalOrphaned > 0) {
+        safePrint('✅ Successfully cleaned up $totalOrphaned orphaned game states (checked $totalChecked total)');
+      } else {
+        safePrint('✨ No orphaned game states found (checked $totalChecked states)');
       }
     } catch (e) {
-      // Silently fail cleanup
+      safePrint('❌ Error during orphaned game states cleanup: ${e.toString()}');
     }
   }
 
@@ -1232,19 +1176,7 @@ class FirestoreService {
   }) async {
     try {
       
-      // Try to find player in students collection first
-      final studentDoc = await _studentsCollection.doc(playerId).get();
-      if (studentDoc.exists) {
-        await _studentsCollection.doc(playerId).update({
-          'gamesPlayed': FieldValue.increment(gamesPlayed),
-          'gamesWon': FieldValue.increment(gamesWon),
-          'wordsRead': FieldValue.increment(wordsCorrect),
-          'lastGameAt': FieldValue.serverTimestamp(),
-        });
-        return;
-      }
-
-      // Try users collection as fallback
+      // Update user in users collection
       final userDoc = await _usersCollection.doc(playerId).get();
       if (userDoc.exists) {
         await _usersCollection.doc(playerId).update({

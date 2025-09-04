@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:math';
 import 'dart:async';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
@@ -17,7 +19,6 @@ import '../models/word_list_model.dart';
 import '../models/game_session_model.dart';
 import '../models/game_state_model.dart';
 import '../models/student_game_model.dart';
-import '../services/student_game_service.dart';
 import 'teacher_game_screen.dart';
 
 class AdminDashboardPage extends StatefulWidget {
@@ -90,9 +91,10 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
   void _performMaintenanceCleanup() async {
     try {
       // Run cleanup in background without blocking UI
+      print('📱 Admin Dashboard: Triggering maintenance cleanup...');
       FirestoreService.performMaintenanceCleanup();
     } catch (e) {
-      // Silently fail - don't show errors for maintenance tasks
+      print('📱 Admin Dashboard: Cleanup failed - ${e.toString()}');
     }
   }
 
@@ -1259,17 +1261,23 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
   void _showStudentGameManagement(StudentGameModel studentGame) {
     showDialog(
       context: context,
-      builder: (context) => StreamBuilder<StudentGameModel?>(
-        stream: StudentGameService.getGameStream(studentGame.gameId),
+      builder: (context) => StreamBuilder<GameSessionModel?>(
+        stream: FirestoreService.listenToGameSession(studentGame.gameId),
         builder: (context, snapshot) {
-          final currentGame = snapshot.data ?? studentGame;
+          final currentGame = snapshot.data;
+          if (currentGame == null) {
+            return const AlertDialog(
+              title: Text('Game Not Found'),
+              content: Text('This game no longer exists.'),
+            );
+          }
           
           return AlertDialog(
             title: Row(
               children: [
                 Icon(Icons.games, color: AppColors.gamePrimary),
                 const SizedBox(width: 8),
-                Text('Game: ${currentGame.gameCode}'),
+                Text('Game: ${currentGame.gameId}'),
               ],
             ),
             content: SingleChildScrollView(
@@ -1304,7 +1312,7 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
                         ),
                         const SizedBox(width: 8),
                         Text(
-                          'Status: ${currentGame.gameMode.toUpperCase()}',
+                          'Status: ${currentGame.status.toString().split('.').last.toUpperCase()}',
                           style: const TextStyle(fontWeight: FontWeight.w500),
                         ),
                       ],
@@ -1326,15 +1334,15 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
                   else
                     ...currentGame.players.map((player) => ListTile(
                       leading: CircleAvatar(
-                        backgroundColor: _getPlayerColor(player.avatarColor),
-                        child: Icon(
-                          _getPlayerIcon(player.avatarIcon),
-                          color: Colors.white,
+                        backgroundColor: _getPlayerColor(player.playerColor),
+                        child: Text(
+                          player.avatarUrl ?? '😊',
+                          style: const TextStyle(fontSize: 20),
                         ),
                       ),
-                      title: Text(player.playerName),
-                      subtitle: Text('Slot ${player.playerSlot}'),
-                      trailing: player.isConnected
+                      title: Text(player.displayName),
+                      subtitle: Text('Joined: ${player.joinedAt.toString().split(' ')[1].substring(0, 5)}'),
+                      trailing: player.isReady
                           ? Icon(Icons.circle, color: Colors.green, size: 12)
                           : Icon(Icons.circle, color: Colors.red, size: 12),
                     )),
@@ -1349,7 +1357,7 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
               if (currentGame.isWaiting && currentGame.canStart)
                 ElevatedButton(
                   onPressed: () async {
-                    await StudentGameService.startGame(currentGame.gameId);
+                    await GameSessionService.startGameSession(currentGame.gameId);
                   },
                   child: const Text('Start Game'),
                 ),
@@ -1374,7 +1382,7 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
                       ),
                     );
                     if (confirmed == true) {
-                      await StudentGameService.deleteGame(currentGame.gameId);
+                      await FirestoreService.deleteGameSession(currentGame.gameId);
                       if (context.mounted) {
                         Navigator.pop(context);
                       }
@@ -1389,29 +1397,12 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
     );
   }
 
-  Color _getPlayerColor(String colorName) {
-    switch (colorName.toLowerCase()) {
-      case 'red': return Colors.red;
-      case 'blue': return Colors.blue;
-      case 'green': return Colors.green;
-      case 'yellow': return AppColors.primary;
-      case 'purple': return Colors.purple;
-      case 'orange': return AppColors.primary;
-      default: return Colors.blue;
-    }
+
+  Color _getPlayerColor(int? colorValue) {
+    if (colorValue == null) return Colors.blue;
+    return Color(colorValue);
   }
 
-  IconData _getPlayerIcon(String iconName) {
-    switch (iconName.toLowerCase()) {
-      case 'cat': return Icons.pets;
-      case 'dog': return Icons.pets;
-      case 'star': return Icons.star;
-      case 'heart': return Icons.favorite;
-      case 'butterfly': return Icons.flutter_dash;
-      case 'sun': return Icons.wb_sunny;
-      default: return Icons.person;
-    }
-  }
 
   // Default simple word grid for students with reading difficulties
   List<List<String>> _getDefaultSimpleWordGrid() {

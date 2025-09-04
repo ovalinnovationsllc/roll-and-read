@@ -60,11 +60,21 @@
     }
   </script>
   
-  <!-- Firebase SDKs -->
-  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
-  <script src="firebase-config.js"></script>
+  <!-- Firebase configuration will be handled by FlutterFire -->
+  <script>
+    // Firebase configuration for FlutterFire
+    const firebaseConfig = {
+      apiKey: "AIzaSyAJ-zI4UrZxL2Z6qvt4qfEsDPnmgrm5iuI",
+      authDomain: "roll-and-read.firebaseapp.com",
+      projectId: "roll-and-read",
+      storageBucket: "roll-and-read.firebasestorage.app",
+      messagingSenderId: "13557902076",
+      appId: "1:13557902076:web:44d0c76a6fad7aca514579"
+    };
+    
+    // Make config available to FlutterFire
+    window.flutterfire_web_config = firebaseConfig;
+  </script>
 </head>
 <body>
   <script src="flutter_bootstrap.js" async></script>

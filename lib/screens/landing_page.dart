@@ -97,7 +97,7 @@ class LandingPage extends StatelessWidget {
                                   color: AppColors.mediumBlue.withOpacity(0.4),
                                   blurRadius: 30,
                                   spreadRadius: 10,
-                                  offset: const Offset(0, 10),
+                                  offset: const Offset(0, 0),
                                 ),
                               ],
                             ),

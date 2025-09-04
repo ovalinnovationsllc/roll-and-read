@@ -2,9 +2,77 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Temporary rules for testing - CHANGE BEFORE PRODUCTION
+    // Clean production system: Firebase Auth for teachers + unauthenticated for students
+    
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function isAuthenticatedTeacher() {
+      return isSignedIn() && 
+             exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true;
+    }
+    
+    // Users collection - teachers use Firebase Auth, students are managed by teachers
+    match /users/{userId} {
+      // Allow unauthenticated read for student game joining (students don't have auth)
+      allow read: if request.auth == null;
+      
+      // Authenticated teachers can manage all users
+      allow read, write: if isAuthenticatedTeacher();
+      
+      // Authenticated teachers can read/update their own profile
+      allow read, update: if isSignedIn() && request.auth.uid == userId;
+      
+      // Allow creation of new teacher profiles during Firebase Auth registration
+      allow create: if isSignedIn() && 
+                   request.auth.uid == userId &&
+                   request.resource.data.isAdmin == true;
+      
+      // Allow authenticated teachers to query the users collection for statistics
+      allow list: if isAuthenticatedTeacher();
+    }
+    
+    // Games collection - teachers manage, students can read for joining
+    match /games/{gameId} {
+      // Students need to read games to join with codes
+      allow read: if request.auth == null;
+      
+      // Only authenticated teachers can create/modify/delete games
+      allow write: if isAuthenticatedTeacher();
+      
+      // Allow authenticated teachers to query games collection
+      allow list: if isAuthenticatedTeacher();
+    }
+    
+    // GameStates collection - used for active gameplay
+    match /gameStates/{stateId} {
+      // Students need to read/write game states during gameplay
+      allow read, write: if request.auth == null;
+      
+      // Authenticated teachers can read/write/delete for management
+      allow read, write: if isAuthenticatedTeacher();
+      
+      // Allow authenticated teachers to query gameStates collection
+      allow list: if isAuthenticatedTeacher();
+    }
+    
+    // WordLists collection - teachers manage, students can read
+    match /wordLists/{listId} {
+      // Students need to read word lists during games
+      allow read: if request.auth == null;
+      
+      // Only authenticated teachers can create/modify/delete word lists
+      allow write: if isAuthenticatedTeacher();
+      
+      // Allow authenticated teachers to query word lists collection
+      allow list: if isAuthenticatedTeacher();
+    }
+    
+    // Block access to any other collections
     match /{document=**} {
-      allow read, write: if true;
+      allow read, write: if false;
     }
   }
 }
