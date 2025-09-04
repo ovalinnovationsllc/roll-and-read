@@ -1,0 +1,16 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // TEMPORARY DEBUG RULES - ALLOW EVERYTHING FOR AUTHENTICATED USERS
+    // DO NOT USE IN PRODUCTION
+    
+    match /{document=**} {
+      // Allow unauthenticated read for login
+      allow read: if request.auth == null;
+      
+      // Allow everything for authenticated users (DEBUG ONLY)
+      allow read, write: if request.auth != null;
+    }
+  }
+}

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'dart:math';
 import '../config/app_colors.dart';
 import 'game_code_entry_page.dart';
 
@@ -129,12 +131,12 @@ class LandingPage extends StatelessWidget {
                         
                         // Title
                         Text(
-                          "ROLL AND READ",
-                          style: TextStyle(
-                            fontSize: isTablet ? 48 : 36,
-                            fontWeight: FontWeight.bold,
+                          "Roll and Read",
+                          style: GoogleFonts.bubblegumSans(
+                            fontSize: isTablet ? 60 : 44,
+                            fontWeight: FontWeight.w400,
                             color: AppColors.primary,
-                            letterSpacing: 3,
+                            letterSpacing: 2,
                             height: 1.2,
                           ),
                         ),
@@ -361,4 +363,71 @@ Winner: ${gameSession?.winnerId ?? 'none'}
       ),
     );
   }
+}
+
+// Custom painter for rainbow-curved text
+class RainbowTextPainter extends CustomPainter {
+  final String text;
+  final TextStyle textStyle;
+
+  RainbowTextPainter({
+    required this.text,
+    required this.textStyle,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final double centerX = size.width / 2;
+    final double centerY = size.height * 1.5; // Move center down for upward arc
+    final double radius = size.width * 0.5; // Larger radius for gentler curve
+    
+    // Remove spaces from text for better distribution
+    final String displayText = text.replaceAll(' ', '');
+    final int charCount = displayText.length;
+    
+    // Wider arc for better spacing
+    final double totalAngle = 1.8; // About 103 degrees for better spread
+    final double startAngle = -totalAngle / 2 - 1.57; // Center the arc
+    
+    for (int i = 0; i < charCount; i++) {
+      // Calculate angle for this character with even distribution
+      final double charAngle = startAngle + (i / (charCount - 1)) * totalAngle;
+      
+      // Calculate position on the arc
+      final double x = centerX + radius * cos(charAngle);
+      final double y = centerY + radius * sin(charAngle);
+      
+      // Create text painter for individual character
+      final textPainter = TextPainter(
+        text: TextSpan(
+          text: displayText[i],
+          style: textStyle,
+        ),
+        textDirection: TextDirection.ltr,
+      );
+      
+      textPainter.layout();
+      
+      // Save canvas state
+      canvas.save();
+      
+      // Translate to character position
+      canvas.translate(x, y);
+      
+      // Rotate the character to follow the curve
+      canvas.rotate(charAngle + 1.57); // Add 90 degrees to make text face outward
+      
+      // Draw the character centered at its position
+      textPainter.paint(
+        canvas,
+        Offset(-textPainter.width / 2, -textPainter.height / 2),
+      );
+      
+      // Restore canvas state
+      canvas.restore();
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
