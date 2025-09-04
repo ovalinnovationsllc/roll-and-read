@@ -260,7 +260,7 @@ class _AnimatedDiceState extends State<AnimatedDice>
       case 0:
         return Center(
           child: Image.asset(
-            'assets/images/app_icon.png',
+            'assets/images/mrs_elson_top.png',
             width: widget.size * 0.6,
             height: widget.size * 0.6,
             fit: BoxFit.contain,

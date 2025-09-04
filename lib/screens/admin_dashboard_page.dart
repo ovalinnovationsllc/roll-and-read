@@ -3115,11 +3115,17 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
     showDialog(
       context: context,
       builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: const Text('Create Student'),
-          content: SizedBox(
-            width: 400,
-            child: Form(
+        builder: (context, setDialogState) {
+          final screenSize = MediaQuery.of(context).size;
+          final isMobile = screenSize.width < 600;
+          final dialogWidth = isMobile ? screenSize.width * 0.9 : 400.0;
+          
+          return AlertDialog(
+            title: const Text('Create Student'),
+            scrollable: true, // Make dialog scrollable
+            content: SizedBox(
+              width: dialogWidth,
+              child: Form(
               key: formKey,
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -3151,7 +3157,7 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
                   ),
                   const SizedBox(height: 8),
                   Container(
-                    height: 250, // Fixed height to ensure scrolling works
+                    height: isMobile ? 180 : 250, // Responsive height
                     decoration: BoxDecoration(
                       border: Border.all(color: Colors.grey.shade300),
                       borderRadius: BorderRadius.circular(8),
@@ -3281,7 +3287,8 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
               child: const Text('Create Student'),
             ),
           ],
-        ),
+        );
+        },
       ),
     );
   }
@@ -3377,21 +3384,24 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
           ),
         ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
-          ),
-          ElevatedButton.icon(
+          TextButton.icon(
             onPressed: () async {
               Navigator.pop(context); // Close stats dialog first
               await _deleteStudentConfirmation(student);
             },
             icon: const Icon(Icons.delete_outline, size: 18),
             label: const Text('Delete Student'),
+            style: TextButton.styleFrom(
+              foregroundColor: AppColors.error,
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context),
             style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.error,
+              backgroundColor: AppColors.primary,
               foregroundColor: Colors.white,
             ),
+            child: const Text('Close'),
           ),
         ],
       ),

@@ -131,7 +131,7 @@ class AIWordService {
     }
     
     // Check for ending pattern (e.g., "ending in -it", "ending with at")
-    final endingPattern = RegExp(r'ending (?:in|with) ["\']?(-?\w+)["\']?').firstMatch(lowerPrompt);
+    final endingPattern = RegExp(r'ending (?:in|with) ["\x27]?(-?\w+)["\x27]?').firstMatch(lowerPrompt);
     if (endingPattern != null) {
       final ending = endingPattern.group(1)?.replaceAll('-', '');
       patternInstructions += '- ALL words MUST end with "$ending"\n';
@@ -177,7 +177,7 @@ No extra text, just the 36 comma-separated words.
     }
     
     // Check for ending pattern (e.g., "ending in -it", "ending with at")
-    final endingPattern = RegExp(r'ending (?:in|with) ["\']?(-?\w+)["\']?').firstMatch(lowerPrompt);
+    final endingPattern = RegExp(r'ending (?:in|with) ["\x27]?(-?\w+)["\x27]?').firstMatch(lowerPrompt);
     if (endingPattern != null) {
       final ending = endingPattern.group(1)?.replaceAll('-', '');
       patternInstructions += '- ALL words MUST end with "$ending"\n';

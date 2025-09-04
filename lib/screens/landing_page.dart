@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../config/app_colors.dart';
 import 'game_code_entry_page.dart';
 
@@ -38,41 +39,89 @@ class LandingPage extends StatelessWidget {
                       mainAxisAlignment: MainAxisAlignment.center,
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        // App Icon
-                        Container(
-                          padding: const EdgeInsets.all(25),
-                          decoration: BoxDecoration(
-                            color: Colors.transparent,
-                            shape: BoxShape.circle,
-                            boxShadow: [
-                              BoxShadow(
-                                color: AppColors.mediumBlue.withOpacity(0.4),
-                                blurRadius: 30,
-                                spreadRadius: 10,
-                                offset: const Offset(0, 10),
+                        // App Icon with long press for teacher access
+                        GestureDetector(
+                          onLongPress: () {
+                            // Show teacher access options after long press on Mrs. Elson icon
+                            showModalBottomSheet(
+                              context: context,
+                              backgroundColor: Colors.white,
+                              shape: const RoundedRectangleBorder(
+                                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
                               ),
-                            ],
-                          ),
-                          child: Image.asset(
-                            'assets/images/app_icon.png',
-                            width: isLargeScreen ? 300 : (isTablet ? 240 : 180),
-                            height: isLargeScreen ? 300 : (isTablet ? 240 : 180),
-                            fit: BoxFit.contain,
-                            errorBuilder: (context, error, stackTrace) {
-                              return Container(
-                                width: isLargeScreen ? 300 : (isTablet ? 240 : 180),
-                                height: isLargeScreen ? 300 : (isTablet ? 240 : 180),
-                                decoration: BoxDecoration(
-                                  color: AppColors.gamePrimary,
-                                  borderRadius: BorderRadius.circular(20),
+                              builder: (context) => SafeArea(
+                                child: Padding(
+                                  padding: const EdgeInsets.all(20),
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        'Teacher & Admin Access',
+                                        style: TextStyle(
+                                          fontSize: isTablet ? 20 : 18,
+                                          fontWeight: FontWeight.bold,
+                                          color: AppColors.primary,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 20),
+                                      
+                                      // Teacher Dashboard
+                                      ListTile(
+                                        leading: const Icon(Icons.admin_panel_settings, color: AppColors.adminPrimary),
+                                        title: const Text('Teacher Dashboard'),
+                                        subtitle: const Text('Manage students and games'),
+                                        onTap: () {
+                                          Navigator.pop(context);
+                                          Navigator.pushNamed(context, '/teacher-login');
+                                        },
+                                      ),
+                                      
+                                      const SizedBox(height: 10),
+                                      TextButton(
+                                        onPressed: () => Navigator.pop(context),
+                                        child: const Text('Cancel'),
+                                      ),
+                                    ],
+                                  ),
                                 ),
-                                child: Icon(
-                                  Icons.school,
-                                  size: isLargeScreen ? 150 : (isTablet ? 120 : 90),
-                                  color: Colors.white,
+                              ),
+                            );
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.all(25),
+                            decoration: BoxDecoration(
+                              color: Colors.transparent,
+                              shape: BoxShape.circle,
+                              boxShadow: [
+                                BoxShadow(
+                                  color: AppColors.mediumBlue.withOpacity(0.4),
+                                  blurRadius: 30,
+                                  spreadRadius: 10,
+                                  offset: const Offset(0, 10),
                                 ),
-                              );
-                            },
+                              ],
+                            ),
+                            child: Image.asset(
+                              'assets/images/mrs_elson_full.png',
+                              width: isLargeScreen ? 400 : (isTablet ? 320 : 240),
+                              height: isLargeScreen ? 400 : (isTablet ? 320 : 240),
+                              fit: BoxFit.contain,
+                              errorBuilder: (context, error, stackTrace) {
+                                return Container(
+                                  width: isLargeScreen ? 400 : (isTablet ? 320 : 240),
+                                  height: isLargeScreen ? 400 : (isTablet ? 320 : 240),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.gamePrimary,
+                                    borderRadius: BorderRadius.circular(20),
+                                  ),
+                                  child: Icon(
+                                    Icons.school,
+                                    size: isLargeScreen ? 150 : (isTablet ? 120 : 90),
+                                    color: Colors.white,
+                                  ),
+                                );
+                              },
+                            ),
                           ),
                         ),
                         
@@ -269,67 +318,37 @@ Winner: ${gameSession?.winnerId ?? 'none'}
                 ),
               ),
               
-              // Footer at bottom - hidden teacher access
+              // Footer at bottom with company link
               Positioned(
                 bottom: 20,
                 left: 0,
                 right: 0,
                 child: Column(
                   children: [
-                    // Hidden teacher access via long press on company name
+                    // Company name as hyperlink
                     GestureDetector(
-                      onLongPress: () {
-                        // Show teacher access options after long press
-                        showModalBottomSheet(
-                          context: context,
-                          backgroundColor: Colors.white,
-                          shape: const RoundedRectangleBorder(
-                            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-                          ),
-                          builder: (context) => SafeArea(
-                            child: Padding(
-                              padding: const EdgeInsets.all(20),
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Text(
-                                    'Teacher & Admin Access',
-                                    style: TextStyle(
-                                      fontSize: isTablet ? 20 : 18,
-                                      fontWeight: FontWeight.bold,
-                                      color: AppColors.primary,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 20),
-                                  
-                                  // Teacher Dashboard
-                                  ListTile(
-                                    leading: const Icon(Icons.admin_panel_settings, color: AppColors.adminPrimary),
-                                    title: const Text('Teacher Dashboard'),
-                                    subtitle: const Text('Manage students and games'),
-                                    onTap: () {
-                                      Navigator.pop(context);
-                                      Navigator.pushNamed(context, '/teacher-login');
-                                    },
-                                  ),
-                                  
-                                  const SizedBox(height: 10),
-                                  TextButton(
-                                    onPressed: () => Navigator.pop(context),
-                                    child: const Text('Cancel'),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        );
+                      onTap: () async {
+                        final url = 'https://www.ovalinnovationsllc.com';
+                        try {
+                          final uri = Uri.parse(url);
+                          // Use launchUrl with webOnlyWindowName for web compatibility
+                          await launchUrl(
+                            uri, 
+                            mode: LaunchMode.externalApplication,
+                            webOnlyWindowName: '_blank',
+                          );
+                        } catch (e) {
+                          // Silently fail if URL launcher is not available
+                          debugPrint('Could not launch URL: $e');
+                        }
                       },
                       child: Text(
                         'Built by Oval Innovations, LLC',
                         style: TextStyle(
                           fontSize: isTablet ? 12 : 11,
-                          color: AppColors.textDisabled,
+                          color: AppColors.primary.withOpacity(0.7),
                           fontStyle: FontStyle.italic,
+                          decoration: TextDecoration.underline,
                         ),
                       ),
                     ),
