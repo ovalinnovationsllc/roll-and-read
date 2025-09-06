@@ -37,7 +37,8 @@ service cloud.firestore {
     // Games collection - teachers manage, students can read and update for joining
     match /games/{gameId} {
       // Students need to read games to join with codes
-      allow read: if request.auth == null;
+      // Also allow authenticated users to read for cleanup operations
+      allow read: if true;
       
       // Allow students to update games when joining (but not create/delete)
       allow update: if request.auth == null;
@@ -67,14 +68,16 @@ service cloud.firestore {
       // Students need to read/write game states during gameplay
       allow read, write: if request.auth == null;
       
-      // Allow unauthenticated delete for maintenance cleanup of orphaned states
-      allow delete: if request.auth == null;
+      // Allow delete for cleanup operations (both authenticated and unauthenticated)
+      // This is needed for maintenance to remove orphaned states
+      allow delete: if true;
       
       // Authenticated teachers can read/write/delete for management
-      allow read, write, delete: if isAuthenticatedTeacher();
+      allow read, write: if isAuthenticatedTeacher();
       
-      // Allow authenticated teachers to query gameStates collection
-      allow list: if isAuthenticatedTeacher();
+      // Allow listing gameStates collection for cleanup operations
+      // This is needed for maintenance operations to find orphaned states
+      allow list: if true;
     }
     
     // WordLists collection - teachers manage, students can read

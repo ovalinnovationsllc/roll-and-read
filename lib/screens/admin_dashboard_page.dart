@@ -40,7 +40,6 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
   Map<String, dynamic>? _statistics;
   bool _loadingStats = true;
   List<GameSessionModel> _activeGames = [];
-  String _selectedPrompt = '';
   
   // Default word grid with child-friendly 4-6 character words
   static const List<List<String>> defaultWordGrid = [
@@ -76,8 +75,14 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
     _searchController.addListener(_onSearchChanged);
     _initializeSpeech();
     
-    // Run cleanup of old games in background
-    _performMaintenanceCleanup();
+    // Run cleanup of old games in background after a delay
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Future.delayed(const Duration(seconds: 2), () {
+        if (mounted) {
+          _performMaintenanceCleanup();
+        }
+      });
+    });
     
   }
 
@@ -91,14 +96,14 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
 
 
   /// Perform background maintenance cleanup
-  void _performMaintenanceCleanup() async {
-    try {
-      // Run cleanup in background without blocking UI
-      print('📱 Admin Dashboard: Triggering maintenance cleanup...');
-      FirestoreService.performMaintenanceCleanup();
-    } catch (e) {
+  void _performMaintenanceCleanup() {
+    // Don't await - run completely in background
+    FirestoreService.performMaintenanceCleanup().then((_) {
+      print('📱 Admin Dashboard: Maintenance cleanup completed successfully');
+    }).catchError((e) {
       print('📱 Admin Dashboard: Cleanup failed - ${e.toString()}');
-    }
+    });
+    print('📱 Admin Dashboard: Maintenance cleanup started in background...');
   }
 
   void _onSearchChanged() {
@@ -894,6 +899,7 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
     String wordListMode = 'default'; // 'default', 'existing', 'new', or 'preset'
     int maxPlayers = 2; // Default to 2 players
     String selectedPresetGrade = 'kindergarten'; // For preset lists
+    String selectedPrompt = ''; // Local to dialog - resets each time dialog opens
 
     // Filter word lists based on search query
     void filterWordLists(String query, StateSetter setDialogState) {
@@ -1173,7 +1179,11 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
                 ),
                 const SizedBox(height: 16),
                 // Simple pattern selection buttons instead of complex text input
-                _buildSimplePatternSelector(setDialogState),
+                _buildSimplePatternSelector(setDialogState, selectedPrompt, (newPrompt) {
+                  setDialogState(() {
+                    selectedPrompt = newPrompt;
+                  });
+                }),
               ] else ...[
                 const Text(
                   '✓ Start a quick game with a default list of simple words',
@@ -1225,9 +1235,9 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
                     maxPlayers: maxPlayers,
                     wordGrid: wordGrid,
                     useAIWords: useAIWords,
-                    aiPrompt: useAIWords ? (_selectedPrompt.isEmpty 
+                    aiPrompt: useAIWords ? (selectedPrompt.isEmpty 
                         ? 'Simple educational words for middle school students' 
-                        : _selectedPrompt) : null,
+                        : selectedPrompt) : null,
                     difficulty: useAIWords ? selectedDifficulty : null,
                   );
                   
@@ -1238,7 +1248,7 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
                   if (mounted) {
                     Navigator.of(context).pop();
                     // Navigate to teacher review screen instead of showing completion dialog
-                    _navigateToTeacherReview(gameSession, useAIWords ? _selectedPrompt : null, useAIWords ? selectedDifficulty : null);
+                    _navigateToTeacherReview(gameSession, useAIWords ? selectedPrompt : null, useAIWords ? selectedDifficulty : null);
                   }
                 } catch (e) {
                   setDialogState(() {
@@ -1517,6 +1527,7 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
     String wordListMode = 'default'; // 'default', 'existing', 'new', or 'preset'
     int maxPlayers = 2; // Default to 2 players
     String selectedPresetGrade = 'kindergarten'; // For preset lists
+    String selectedPrompt = ''; // Local to dialog - resets each time dialog opens
 
     // Load existing word lists
     void loadWordLists(StateSetter setDialogState) async {
@@ -1694,7 +1705,11 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
                 ),
                 const SizedBox(height: 16),
                 // Simple pattern selection buttons instead of complex text input
-                _buildSimplePatternSelector(setDialogState),
+                _buildSimplePatternSelector(setDialogState, selectedPrompt, (newPrompt) {
+                  setDialogState(() {
+                    selectedPrompt = newPrompt;
+                  });
+                }),
               ] else ...[
                 const Text(
                   '✓ Start a quick game with a default list of simple words',
@@ -1746,9 +1761,9 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
                     maxPlayers: maxPlayers,
                     wordGrid: wordGrid,
                     useAIWords: useAIWords,
-                    aiPrompt: useAIWords ? (_selectedPrompt.isEmpty 
+                    aiPrompt: useAIWords ? (selectedPrompt.isEmpty 
                         ? 'Simple educational words for middle school students' 
-                        : _selectedPrompt) : null,
+                        : selectedPrompt) : null,
                     difficulty: useAIWords ? selectedDifficulty : null,
                   );
                   
@@ -1759,7 +1774,7 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
                   if (mounted) {
                     Navigator.of(context).pop();
                     // Navigate to teacher review screen instead of showing completion dialog
-                    _navigateToTeacherReview(gameSession, useAIWords ? _selectedPrompt : null, useAIWords ? selectedDifficulty : null);
+                    _navigateToTeacherReview(gameSession, useAIWords ? selectedPrompt : null, useAIWords ? selectedDifficulty : null);
                   }
                 } catch (e) {
                   setDialogState(() {
@@ -2058,7 +2073,7 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
                 itemBuilder: (context, index) {
                   final game = games[index];
                   return KeyedSubtree(
-                    key: ValueKey('${game.gameId}_${game.players.length}'),
+                    key: ValueKey(game.gameId),
                     child: game.status == GameStatus.inProgress 
                       ? _buildSimpleActiveGameCard(game, isTablet)
                       : _buildGameCard(game, isTablet),
@@ -3369,7 +3384,7 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
                     if (mounted) {
                       Navigator.of(context).pop();
                       if (student != null) {
-                        setState(() {}); // Refresh the list
+                        // StreamBuilder will automatically refresh
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
                             content: Text('Student "${student.displayName}" created successfully'),
@@ -3586,7 +3601,7 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
       await FirestoreService.deleteStudent(student.studentId);
       final success = true;
       if (mounted) {
-        setState(() {}); // Refresh the list
+        // StreamBuilder will automatically refresh
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(success
@@ -3835,7 +3850,7 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
 
         return RefreshIndicator(
           onRefresh: () async {
-            setState(() {});
+            // StreamBuilder will automatically refresh
           },
           child: ListView.builder(
             padding: const EdgeInsets.all(16),
@@ -4061,17 +4076,12 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
         ),
       ),
     ).then((_) {
-      // Refresh the UI when returning from review screen
-      if (mounted) {
-        setState(() {
-          // The StreamBuilder will automatically update with new data
-        });
-      }
+      // StreamBuilder will automatically refresh when returning from review screen
     });
   }
 
   // Build the simple pattern selector UI for teachers
-  Widget _buildSimplePatternSelector(StateSetter setDialogState) {
+  Widget _buildSimplePatternSelector(StateSetter setDialogState, String selectedPrompt, Function(String) onPromptChanged) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -4088,12 +4098,20 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
           spacing: 8,
           runSpacing: 8,
           children: [
-            _buildPatternButton('-at words (cat, bat, hat)', 'words ending in -at', setDialogState),
-            _buildPatternButton('-un words (run, sun, fun)', 'words ending in -un', setDialogState),
-            _buildPatternButton('-it words (sit, hit, bit)', 'words ending in -it', setDialogState),
-            _buildPatternButton('-an words (can, man, ran)', 'words ending in -an', setDialogState),
-            _buildPatternButton('-in words (pin, win, tin)', 'words ending in -in', setDialogState),
-            _buildPatternButton('-ot words (hot, pot, dot)', 'words ending in -ot', setDialogState),
+            _buildPatternButton('-at words (cat, bat, hat)', 'words ending in -at', selectedPrompt, onPromptChanged),
+            _buildPatternButton('-et words (pet, get, let)', 'words ending in -et', selectedPrompt, onPromptChanged),
+            _buildPatternButton('-it words (sit, hit, bit)', 'words ending in -it', selectedPrompt, onPromptChanged),
+            _buildPatternButton('-ot words (hot, pot, dot)', 'words ending in -ot', selectedPrompt, onPromptChanged),
+            _buildPatternButton('-ut words (cut, but, hut)', 'words ending in -ut', selectedPrompt, onPromptChanged),
+            _buildPatternButton('-an words (can, man, ran)', 'words ending in -an', selectedPrompt, onPromptChanged),
+            _buildPatternButton('-en words (pen, ten, hen)', 'words ending in -en', selectedPrompt, onPromptChanged),
+            _buildPatternButton('-in words (pin, win, tin)', 'words ending in -in', selectedPrompt, onPromptChanged),
+            _buildPatternButton('-un words (run, sun, fun)', 'words ending in -un', selectedPrompt, onPromptChanged),
+            _buildPatternButton('-ig words (big, dig, fig)', 'words ending in -ig', selectedPrompt, onPromptChanged),
+            _buildPatternButton('-og words (dog, log, hog)', 'words ending in -og', selectedPrompt, onPromptChanged),
+            _buildPatternButton('-ug words (bug, hug, jug)', 'words ending in -ug', selectedPrompt, onPromptChanged),
+            _buildPatternButton('-ay words (day, way, say)', 'words ending in -ay', selectedPrompt, onPromptChanged),
+            _buildPatternButton('-ed words (red, bed, fed)', 'words ending in -ed', selectedPrompt, onPromptChanged),
           ],
         ),
         const SizedBox(height: 16),
@@ -4105,16 +4123,16 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
           spacing: 8,
           runSpacing: 8,
           children: [
-            _buildPatternButton('Short A (cat, bat)', 'words with short a sound', setDialogState),
-            _buildPatternButton('Short E (bed, red)', 'words with short e sound', setDialogState),
-            _buildPatternButton('Short I (sit, hit)', 'words with short i sound', setDialogState),
-            _buildPatternButton('Short O (hot, pot)', 'words with short o sound', setDialogState),
-            _buildPatternButton('Short U (cut, run)', 'words with short u sound', setDialogState),
-            _buildPatternButton('Long A (cake, name)', 'words with long a sound', setDialogState),
-            _buildPatternButton('Long E (tree, see)', 'words with long e sound', setDialogState),
-            _buildPatternButton('Long I (bike, time)', 'words with long i sound', setDialogState),
-            _buildPatternButton('Long O (boat, home)', 'words with long o sound', setDialogState),
-            _buildPatternButton('Long U (cube, tune)', 'words with long u sound', setDialogState),
+            _buildPatternButton('Short A (cat, bat)', 'words with short a sound', selectedPrompt, onPromptChanged),
+            _buildPatternButton('Short E (bed, red)', 'words with short e sound', selectedPrompt, onPromptChanged),
+            _buildPatternButton('Short I (sit, hit)', 'words with short i sound', selectedPrompt, onPromptChanged),
+            _buildPatternButton('Short O (hot, pot)', 'words with short o sound', selectedPrompt, onPromptChanged),
+            _buildPatternButton('Short U (cut, run)', 'words with short u sound', selectedPrompt, onPromptChanged),
+            _buildPatternButton('Long A (cake, name)', 'words with long a sound', selectedPrompt, onPromptChanged),
+            _buildPatternButton('Long E (tree, see)', 'words with long e sound', selectedPrompt, onPromptChanged),
+            _buildPatternButton('Long I (bike, time)', 'words with long i sound', selectedPrompt, onPromptChanged),
+            _buildPatternButton('Long O (boat, home)', 'words with long o sound', selectedPrompt, onPromptChanged),
+            _buildPatternButton('Long U (cube, tune)', 'words with long u sound', selectedPrompt, onPromptChanged),
           ],
         ),
         const SizedBox(height: 16),
@@ -4126,16 +4144,18 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
           spacing: 8,
           runSpacing: 8,
           children: [
-            _buildPatternButton('Animals', 'farm animals', setDialogState),
-            _buildPatternButton('Colors', 'basic color names', setDialogState),
-            _buildPatternButton('3-Letter Words', '3 letter CVC words', setDialogState),
-            _buildPatternButton('4-Letter Words', '4 letter words', setDialogState),
+            _buildPatternButton('Animals', 'farm animals', selectedPrompt, onPromptChanged),
+            _buildPatternButton('Colors', 'basic color names', selectedPrompt, onPromptChanged),
+            _buildPatternButton('3-Letter Words', '3 letter CVC words', selectedPrompt, onPromptChanged),
+            _buildPatternButton('4-Letter Words', '4 letter words', selectedPrompt, onPromptChanged),
+            _buildPatternButton('5-Letter Words', '5 letter words', selectedPrompt, onPromptChanged),
+            _buildPatternButton('6-Letter Words', '6 letter words', selectedPrompt, onPromptChanged),
           ],
         ),
         const SizedBox(height: 16),
         
         // Show selected pattern
-        if (_selectedPrompt.isNotEmpty) ...[
+        if (selectedPrompt.isNotEmpty) ...[
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
@@ -4149,14 +4169,14 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    'Selected: $_selectedPrompt',
+                    'Selected: $selectedPrompt',
                     style: TextStyle(color: AppColors.success, fontWeight: FontWeight.w500),
                   ),
                 ),
                 TextButton(
                   onPressed: () {
                     setDialogState(() {
-                      _selectedPrompt = '';
+                      selectedPrompt = '';
                     });
                   },
                   child: const Text('Clear'),
@@ -4171,14 +4191,12 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
   }
 
   // Build individual pattern selection button
-  Widget _buildPatternButton(String displayText, String promptText, StateSetter setDialogState) {
-    final isSelected = _selectedPrompt == promptText;
+  Widget _buildPatternButton(String displayText, String promptText, String selectedPrompt, Function(String) onPromptChanged) {
+    final isSelected = selectedPrompt == promptText;
     
     return ElevatedButton(
       onPressed: () {
-        setDialogState(() {
-          _selectedPrompt = promptText;
-        });
+        onPromptChanged(promptText);
       },
       style: ElevatedButton.styleFrom(
         backgroundColor: isSelected ? AppColors.primary : Colors.grey[100],

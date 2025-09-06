@@ -472,10 +472,14 @@ class AIWordService {
         final ending = endingMatch.group(1);
         endingEmphasis = '''
 
-CRITICAL: ALL 36 words MUST end with "$ending". 
-Examples of CORRECT words: ${_getExampleWords(ending ?? '')}
-DO NOT include words that end with any other letters.
-Every single word in your response MUST end with "$ending".
+🚨 CRITICAL ENDING REQUIREMENT 🚨
+- ALL 36 words MUST end with "$ending" 
+- Examples of CORRECT words: ${_getExampleWords(ending ?? '')}
+- DO NOT include "book", "tree", "happy", "blue" or any word not ending in "$ending"
+- REJECT words like "rabbit" (ends in "bit" not "$ending")
+- REJECT words like "credit" (ends in "dit" not "$ending") 
+- Every single word must have "$ending" as the exact final letters
+- Double-check EVERY word before including it
 ''';
       }
     }
@@ -485,43 +489,47 @@ Every single word in your response MUST end with "$ending".
     String topicGuidance = _getTopicSpecificGuidance(enhancedPrompt);
     
     return '''
-EDUCATIONAL WORD GENERATION FOR CHILDREN WITH READING DIFFICULTIES
+🚨 CHILDREN'S READING GAME - SIMPLE WORDS ONLY 🚨
 
-Task: Generate exactly 36 simple, safe, educational words for "$prompt"
-Student Level: $difficulty
-Reading Focus: Children learning to pronounce words
+CRITICAL: This is for children ages 5-12 with reading difficulties!
 
-$topicGuidance
+STRICT WORD REQUIREMENTS:
+1. MAXIMUM 6 letters long (NO long words like "preeminent", "exceedingly")
+2. ONLY words a kindergarten child would know and say
+3. NO complex vocabulary, academic words, or adult words
+4. Think: cat, dog, run, sun, big, red (YES) - NOT: eleemosynary, exceedingly (NO!)
 
-MANDATORY REQUIREMENTS:
-1. Every word MUST be 100% safe and appropriate for children ages 5-12
-2. NO weapons, violence, or inappropriate content (NO: gun, kill, fight, etc.)
-3. Only simple, common words children know and use
-4. Perfect spelling - no errors allowed
+BANNED WORD TYPES:
+❌ Academic words: preeminent, eleemosynary, exceedingly, magnificent, extraordinary
+❌ Complex adjectives: apprehensive, articulate, austere, abrasive, acquiesce
+❌ Long words over 6 letters
+❌ Words children don't use in daily conversation
+❌ Sophisticated vocabulary
+❌ Any word a 5-year-old wouldn't recognize
+
+APPROVED SIMPLE WORDS ONLY:
+✅ Animals: cat, dog, pig, cow, duck, hen, fox, bee
+✅ Colors: red, blue, pink, green, yellow, brown, black, white  
+✅ Actions: run, jump, sit, walk, play, eat, sleep, hop
+✅ Body: eye, ear, nose, hand, foot, head, arm, leg
+✅ Family: mom, dad, baby, sister, brother
+✅ Food: apple, bread, milk, cake, egg, fish
+✅ Home: bed, chair, table, door, window, house
+
 $patternInstructions
-5. Each word must be unique (no duplicates)
-
-${patternInstructions.isNotEmpty ? '''
-PHONICS PATTERN REQUIREMENT:
-${patternInstructions}
-CRITICAL: Every single word MUST follow this pattern perfectly.
-Check each word before including it.
-''' : ''}
 
 $endingEmphasis
 
-EXAMPLES OF GOOD EDUCATIONAL WORDS FOR CHILDREN:
-For -un pattern: run, sun, fun, bun, spun (NOT: gun, ton, won)
-For animals: cat, dog, cow, pig, duck (NOT: weapons, complex words)
-For colors: red, blue, pink, green (NOT: scarlet, turquoise)
-For Long A sound: cake, name, play, day, make, take, game, same, late, gate
-BANNED COMPLEX WORDS: apprehensive, articulate, austere, abrasive, acquiesce, amenable, aggregate, ambivalence, accentuate
-USE ONLY SIMPLE WORDS THAT 5-7 YEAR OLDS KNOW AND USE DAILY.
+TASK: Generate exactly 36 words for "$prompt"
+- Each word MAXIMUM 6 letters
+- Each word must be something a kindergarten child says daily
+- NO duplicates
+- NO complex words
+${patternInstructions.isNotEmpty ? '- EVERY word must match the pattern requirement' : ''}
 
-RESPOND WITH EXACTLY 36 COMMA-SEPARATED WORDS:
-word1, word2, word3, word4, word5, word6, word7, word8, word9, word10, word11, word12, word13, word14, word15, word16, word17, word18, word19, word20, word21, word22, word23, word24, word25, word26, word27, word28, word29, word30, word31, word32, word33, word34, word35, word36
+RESPOND FORMAT: word1, word2, word3, word4, word5, word6, word7, word8, word9, word10, word11, word12, word13, word14, word15, word16, word17, word18, word19, word20, word21, word22, word23, word24, word25, word26, word27, word28, word29, word30, word31, word32, word33, word34, word35, word36
 
-ONLY the words - no extra text.
+ONLY the 36 simple words - no extra text.
 ''';
   }
   
@@ -933,89 +941,142 @@ No extra text, just the 6 comma-separated words.
     }
   }
   
-  /// Parse AI response into a 6x6 grid
+  /// Parse AI response into a 6x6 grid with strict validation
   static List<List<String>> _parseWordGrid(String aiResponse, {String? requiredEnding, int? requiredLength, String originalPrompt = ''}) {
-    // Clean and split the response
+    // Clean and split the response more aggressively
     var words = aiResponse
         .replaceAll('\n', ' ')
+        .replaceAll(RegExp(r'[^\w\s,-]'), '') // Remove unwanted characters
         .split(',')
         .map((word) => word.trim().toLowerCase())
-        .where((word) => word.isNotEmpty)
+        .where((word) => word.isNotEmpty && word.length > 1) // Must be at least 2 characters
         .toList();
     
-    // Remove duplicates early in the process
-    words = words.toSet().toList();
-    print('🤖 After removing duplicates: ${words.length} unique words');
+    print('🤖 Raw AI response words: $words');
     
-    // If we have a required word length, filter out words of different lengths
-    if (requiredLength != null) {
-      print('🤖 Filtering words to only include those with $requiredLength letters');
-      final validWords = words.where((word) => word.length == requiredLength).toList();
-      final invalidWords = words.where((word) => word.length != requiredLength).toList();
-      
-      if (invalidWords.isNotEmpty) {
-        print('🤖 Removed words with wrong length: $invalidWords');
-      }
-      
-      words = validWords;
-      
-      // If we don't have enough words of the required length, add fallbacks
-      if (words.length < 36) {
-        print('🤖 Need ${36 - words.length} more $requiredLength-letter words');
-        final fallbackWords = _getFallbackWordsForLength(requiredLength, lowerPrompt: originalPrompt.toLowerCase());
-        for (final word in fallbackWords) {
-          if (!words.contains(word)) {
-            words.add(word);
-            if (words.length >= 36) break;
-          }
-        }
+    // CRITICAL: Remove duplicates immediately and aggressively
+    final uniqueWords = <String>[];
+    final seenWords = <String>{};
+    for (final word in words) {
+      if (!seenWords.contains(word)) {
+        seenWords.add(word);
+        uniqueWords.add(word);
       }
     }
+    words = uniqueWords;
+    print('🤖 After removing duplicates: ${words.length} unique words');
     
-    // If we have a required ending pattern, filter out non-matching words
+    // Apply strict pattern filtering FIRST
     if (requiredEnding != null && requiredEnding.isNotEmpty) {
-      print('🤖 Filtering words to only include those ending with "$requiredEnding"');
-      final validWords = words.where((word) => word.endsWith(requiredEnding)).toList();
-      final invalidWords = words.where((word) => !word.endsWith(requiredEnding)).toList();
+      print('🤖 STRICT FILTERING: Only words ending with "$requiredEnding"');
+      final originalCount = words.length;
+      words = words.where((word) {
+        final endsCorrectly = word.endsWith(requiredEnding.toLowerCase());
+        if (!endsCorrectly) {
+          print('🚫 REJECTED "$word" - does not end with "$requiredEnding"');
+        }
+        return endsCorrectly;
+      }).toList();
       
-      if (invalidWords.isNotEmpty) {
-        print('🤖 Removed invalid words not ending in "$requiredEnding": $invalidWords');
-      }
+      print('🤖 Strict ending filter: ${originalCount} → ${words.length} words');
       
-      words = validWords;
-      
-      // If we don't have enough valid words, generate more based on the pattern
+      // If AI didn't provide enough valid words, use curated fallbacks
       if (words.length < 36) {
-        final fallbackWords = _getFallbackWordsForEnding(requiredEnding);
-        print('🤖 Need ${36 - words.length} more words, using fallbacks');
+        final fallbackWords = _getFallbackWordsForEnding(requiredEnding.toLowerCase());
+        print('🤖 Adding fallback words ending in "$requiredEnding": $fallbackWords');
         
         // Add fallback words that aren't already in the list
         for (final word in fallbackWords) {
-          if (!words.contains(word)) {
+          if (!words.contains(word) && word.endsWith(requiredEnding.toLowerCase())) {
             words.add(word);
             if (words.length >= 36) break;
-          }
-        }
-        
-        // If still not enough, repeat some words
-        if (words.length < 36) {
-          print('🤖 Still need ${36 - words.length} words, repeating existing words');
-          final existingWords = List<String>.from(words);
-          int index = 0;
-          while (words.length < 36) {
-            words.add(existingWords[index % existingWords.length]);
-            index++;
           }
         }
       }
     }
     
-    // Ensure we have exactly 36 words
+    // Apply length filtering if specified
+    if (requiredLength != null) {
+      print('🤖 STRICT FILTERING: Only $requiredLength-letter words');
+      final originalCount = words.length;
+      words = words.where((word) {
+        final correctLength = word.length == requiredLength;
+        if (!correctLength) {
+          print('🚫 REJECTED "$word" - has ${word.length} letters, need $requiredLength');
+        }
+        return correctLength;
+      }).toList();
+      
+      print('🤖 Strict length filter: ${originalCount} → ${words.length} words');
+      
+      // If we don't have enough words of the required length, add fallbacks
+      if (words.length < 36) {
+        final fallbackWords = _getFallbackWordsForLength(requiredLength, lowerPrompt: originalPrompt.toLowerCase());
+        print('🤖 Adding $requiredLength-letter fallback words: $fallbackWords');
+        
+        for (final word in fallbackWords) {
+          if (!words.contains(word) && word.length == requiredLength) {
+            words.add(word);
+            if (words.length >= 36) break;
+          }
+        }
+      }
+    }
+    
+    // CRITICAL: Remove overly complex words that are inappropriate for children
+    final bannedComplexWords = {
+      'preeminent', 'eleemosynary', 'exceedingly', 'magnificent', 'extraordinary',
+      'apprehensive', 'articulate', 'austere', 'abrasive', 'acquiesce', 'amenable',
+      'aggregate', 'ambivalence', 'accentuate', 'sophisticated', 'complicated',
+      'elaborate', 'substantial', 'significant', 'appropriate', 'unfortunate',
+      'tremendous', 'incredible', 'remarkable', 'wonderful', 'beautiful',
+      'important', 'different', 'interesting', 'excellent', 'fantastic'
+    };
+    
+    // Filter out complex words and keep only simple ones
+    words = words.where((word) {
+      // Must be 2-6 letters for elementary children
+      if (word.length < 2 || word.length > 6) {
+        print('🚫 REJECTED "$word" - wrong length (${word.length} letters)');
+        return false;
+      }
+      
+      // Must not be in banned complex words list
+      if (bannedComplexWords.contains(word.toLowerCase())) {
+        print('🚫 REJECTED "$word" - too complex for children');
+        return false;
+      }
+      
+      return true;
+    }).toList();
+    
+    // CRITICAL: Ensure no duplicates in final list
+    final finalUniqueWords = <String>[];
+    final finalSeenWords = <String>{};
+    for (final word in words) {
+      if (!finalSeenWords.contains(word)) {
+        finalSeenWords.add(word);
+        finalUniqueWords.add(word);
+      }
+    }
+    words = finalUniqueWords;
+    
+    print('🤖 Final validated word list (${words.length}): ${words.take(10).toList()}...');
+    
+    // Ensure we have exactly 36 words - pad with safe, simple defaults if needed
+    final simpleDefaults = ['cat', 'dog', 'run', 'sun', 'big', 'red', 'top', 'hop', 'sit', 'hit'];
+    int defaultIndex = 0;
     while (words.length < 36) {
-      words.add('word${words.length + 1}');
+      final defaultWord = simpleDefaults[defaultIndex % simpleDefaults.length];
+      if (!words.contains(defaultWord)) {
+        words.add(defaultWord);
+      } else {
+        words.add('${defaultWord}${words.length}'); // Add number to make unique
+      }
+      defaultIndex++;
     }
     if (words.length > 36) {
-      words.removeRange(36, words.length);
+      words = words.take(36).toList();
     }
     
     // Convert to 6x6 grid
@@ -1165,26 +1226,43 @@ No extra text, just the 6 comma-separated words.
   
   /// Get educational fallback words for a specific ending pattern
   /// These are carefully curated for children with reading difficulties
+  /// CRITICAL: All words MUST actually end with the specified pattern and be age-appropriate
   static List<String> _getFallbackWordsForEnding(String ending) {
     switch (ending.toLowerCase()) {
       case 'at':
-        return ['cat', 'bat', 'mat', 'sat', 'hat', 'rat', 'pat', 'fat', 'chat', 'flat', 'that', 'brat', 'vat', 'tat', 'gnat', 'scat', 'plat', 'spat'];
+        return ['cat', 'bat', 'mat', 'sat', 'hat', 'rat', 'pat', 'fat', 'vat', 'chat', 'flat', 'that'];
       case 'it':
-        return ['sit', 'hit', 'bit', 'fit', 'kit', 'lit', 'pit', 'wit', 'quit', 'spit', 'knit', 'grit', 'slit', 'flit', 'split', 'twit', 'whit', 'chit', 'unit', 'emit', 'omit', 'admit', 'permit', 'submit', 'commit', 'outfit', 'misfit', 'refit', 'unfit', 'transmit', 'acquit', 'credit', 'edit', 'audit', 'visit', 'limit', 'digit', 'orbit', 'habit', 'rabbit', 'spirit'];
+        return ['sit', 'hit', 'bit', 'fit', 'kit', 'lit', 'pit', 'wit', 'quit', 'spit', 'knit', 'grit', 'slit', 'flit', 'split'];
       case 'et':
-        return ['pet', 'get', 'let', 'met', 'net', 'set', 'bet', 'jet', 'wet', 'yet', 'vet', 'fret', 'duet', 'diet', 'poet'];
+        return ['pet', 'get', 'let', 'met', 'net', 'set', 'bet', 'jet', 'wet', 'yet', 'vet'];
       case 'ot':
-        return ['hot', 'pot', 'dot', 'got', 'lot', 'not', 'cot', 'jot', 'rot', 'tot', 'shot', 'spot', 'plot', 'knot', 'trot', 'slot', 'blot', 'clot'];
+        return ['hot', 'pot', 'dot', 'got', 'lot', 'not', 'cot', 'jot', 'rot', 'tot', 'shot', 'spot', 'plot', 'knot', 'slot'];
       case 'ut':
-        return ['cut', 'but', 'hut', 'nut', 'put', 'gut', 'jut', 'rut', 'shut', 'strut', 'glut', 'slut'];
+        return ['cut', 'but', 'hut', 'nut', 'put', 'gut', 'jut', 'rut', 'shut'];
       case 'an':
-        return ['can', 'man', 'ran', 'pan', 'fan', 'tan', 'ban', 'van', 'plan', 'than', 'scan', 'span', 'clan', 'bran', 'gran'];
+        return ['can', 'man', 'ran', 'pan', 'fan', 'tan', 'ban', 'van', 'plan', 'than', 'scan', 'span'];
       case 'en':
-        return ['pen', 'ten', 'men', 'hen', 'den', 'when', 'then', 'glen', 'wren', 'zen', 'amen'];
+        return ['pen', 'ten', 'men', 'hen', 'den', 'when', 'then'];
       case 'in':
         return ['pin', 'win', 'tin', 'bin', 'fin', 'skin', 'spin', 'thin', 'chin', 'twin', 'grin', 'shin'];
       case 'un':
-        return ['run', 'sun', 'fun', 'bun', 'spun', 'stun', 'shun', 'nun', 'dun', 'pun'];
+        return ['run', 'sun', 'fun', 'bun', 'spun', 'stun', 'nun'];
+      case 'ay':
+        return ['day', 'way', 'say', 'may', 'bay', 'hay', 'lay', 'pay', 'play', 'stay', 'pray', 'gray'];
+      case 'all':
+        return ['ball', 'call', 'fall', 'hall', 'mall', 'tall', 'wall', 'small'];
+      case 'ell':
+        return ['bell', 'fell', 'sell', 'tell', 'well', 'yell', 'spell', 'shell'];
+      case 'ill':
+        return ['bill', 'fill', 'hill', 'mill', 'pill', 'will', 'spill', 'still', 'gill', 'till'];
+      case 'ack':
+        return ['back', 'pack', 'sack', 'jack', 'lack', 'rack', 'tack', 'black', 'crack', 'track'];
+      case 'ick':
+        return ['kick', 'lick', 'pick', 'sick', 'tick', 'wick', 'thick', 'quick', 'stick', 'brick'];
+      case 'ock':
+        return ['dock', 'lock', 'rock', 'sock', 'block', 'clock', 'knock', 'shock', 'stock'];
+      case 'uck':
+        return ['duck', 'luck', 'buck', 'muck', 'suck', 'tuck', 'stuck', 'truck'];
       default:
         return [];
     }

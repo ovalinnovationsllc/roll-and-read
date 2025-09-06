@@ -25,6 +25,9 @@ class _TeacherReviewScreenState extends State<TeacherReviewScreen> {
   final Set<String> _selectedWords = {};
   bool _isRegenerating = false;
   late List<List<String>> _currentWordGrid;
+  
+  // Track all words that have been replaced throughout all regenerations
+  final Set<String> _allReplacedWords = {};
 
   @override
   void initState() {
@@ -80,10 +83,15 @@ class _TeacherReviewScreenState extends State<TeacherReviewScreen> {
         final parts = wordKey.split('-');
         final row = int.parse(parts[0]);
         final col = int.parse(parts[1]);
-        wordsBeingReplaced.add(_currentWordGrid[row][col]);
+        final wordBeingReplaced = _currentWordGrid[row][col];
+        wordsBeingReplaced.add(wordBeingReplaced);
+        // Add to persistent tracking
+        _allReplacedWords.add(wordBeingReplaced);
       }
       
-      print('🚫 Words to avoid: ${currentWords.union(wordsBeingReplaced).join(", ")}');
+      // Create comprehensive avoid list including all previously replaced words
+      final wordsToAvoid = currentWords.union(wordsBeingReplaced).union(_allReplacedWords);
+      print('🚫 Words to avoid (including all previously replaced): ${wordsToAvoid.join(", ")}');
       
       // Generate multiple grids to get more word options
       List<String> candidateWords = [];
@@ -104,8 +112,7 @@ class _TeacherReviewScreenState extends State<TeacherReviewScreen> {
         // Extract new words and filter out duplicates/existing words
         final newWords = newGrid.expand((row) => row).toList();
         for (String word in newWords) {
-          if (!currentWords.contains(word) && 
-              !wordsBeingReplaced.contains(word) && 
+          if (!wordsToAvoid.contains(word) && 
               !candidateWords.contains(word)) {
             candidateWords.add(word);
           }
@@ -114,21 +121,43 @@ class _TeacherReviewScreenState extends State<TeacherReviewScreen> {
         print('🎯 Found ${candidateWords.length} unique candidate words so far');
       }
       
-      // If we still don't have enough unique words, add some fallback words
+      // If we still don't have enough unique words, generate pattern-specific fallback words
       if (candidateWords.length < _selectedWords.length) {
-        final fallbackWords = [
-          'book', 'read', 'learn', 'study', 'write', 'draw', 'play', 'sing',
-          'dance', 'jump', 'run', 'walk', 'talk', 'think', 'smile', 'laugh',
-          'help', 'kind', 'nice', 'good', 'best', 'great', 'super', 'fun',
-          'happy', 'joy', 'peace', 'love', 'hope', 'dream', 'wish', 'try'
-        ];
+        print('⚠️ Need ${_selectedWords.length - candidateWords.length} more words, trying pattern-specific fallbacks');
+        print('🔍 Prompt for pattern detection: "$prompt"');
         
-        for (String word in fallbackWords) {
-          if (!currentWords.contains(word) && 
-              !wordsBeingReplaced.contains(word) && 
+        // Detect the pattern from the original prompt
+        final patternFallbackWords = _getPatternSpecificFallbacks(prompt, wordsToAvoid.union(candidateWords.toSet()));
+        print('🎯 Pattern fallback words found: $patternFallbackWords');
+        
+        for (String word in patternFallbackWords) {
+          if (!wordsToAvoid.contains(word) && 
               !candidateWords.contains(word) &&
               candidateWords.length < _selectedWords.length) {
             candidateWords.add(word);
+            print('🔄 Added pattern-specific fallback: "$word"');
+          } else {
+            print('🚫 Skipped "$word" - already exists in current words, previously replaced, or being replaced');
+          }
+        }
+        
+        // Only use generic fallbacks if pattern-specific ones aren't enough
+        if (candidateWords.length < _selectedWords.length) {
+          print('⚠️ Pattern fallbacks insufficient, using generic fallbacks');
+          final genericFallbacks = [
+            'book', 'read', 'learn', 'study', 'write', 'draw', 'play', 'sing',
+            'dance', 'jump', 'run', 'walk', 'talk', 'think', 'smile', 'laugh',
+            'help', 'kind', 'nice', 'good', 'best', 'great', 'super', 'fun',
+            'happy', 'joy', 'peace', 'love', 'hope', 'dream', 'wish', 'try'
+          ];
+          
+          for (String word in genericFallbacks) {
+            if (!wordsToAvoid.contains(word) && 
+                !candidateWords.contains(word) &&
+                candidateWords.length < _selectedWords.length) {
+              candidateWords.add(word);
+              print('🔄 Added generic fallback: "$word"');
+            }
           }
         }
       }
@@ -157,14 +186,7 @@ class _TeacherReviewScreenState extends State<TeacherReviewScreen> {
         _isRegenerating = false;
       });
       
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('✅ Regenerated $replacedCount ${replacedCount == 1 ? "word" : "words"} with unique alternatives'),
-            backgroundColor: AppColors.success,
-          ),
-        );
-      }
+      // Toast removed per user request - regeneration is visually obvious from grid changes
       
     } catch (e) {
       setState(() {
@@ -180,6 +202,139 @@ class _TeacherReviewScreenState extends State<TeacherReviewScreen> {
         );
       }
     }
+  }
+
+  Future<void> _cancelAndCleanup() async {
+    try {
+      print('🗑️ TEACHER REVIEW: Canceling and deleting orphaned game session ${widget.gameSession.gameId}');
+      
+      // Delete the game session since teacher is canceling
+      await GameSessionService.deleteGameSession(widget.gameSession.gameId);
+      
+      print('✅ TEACHER REVIEW: Successfully deleted orphaned game session');
+      
+      if (mounted) {
+        Navigator.pop(context);
+      }
+    } catch (e) {
+      print('❌ TEACHER REVIEW: Error deleting game session: $e');
+      
+      // Still navigate back even if deletion failed
+      if (mounted) {
+        Navigator.pop(context);
+      }
+    }
+  }
+
+  /// Get fallback words that match the pattern from the original prompt
+  List<String> _getPatternSpecificFallbacks(String prompt, Set<String> existingWords) {
+    final lowerPrompt = prompt.toLowerCase();
+    print('🔍 Pattern detection for prompt: "$lowerPrompt"');
+    
+    // Detect ending patterns
+    final endingMatch = RegExp(r'(?:ending|end|ends|that end) (?:in|with) ["\x27]?-?(\w+)["\x27]?').firstMatch(lowerPrompt);
+    if (endingMatch != null) {
+      final ending = endingMatch.group(1);
+      print('🎯 Detected ending pattern: "$ending"');
+      if (ending != null) {
+        final words = _getFallbackWordsForEnding(ending, existingWords);
+        print('📝 Available fallback words for ending "$ending": $words');
+        return words;
+      }
+    } else {
+      print('❌ No ending pattern detected');
+    }
+    
+    // Detect length patterns
+    final lengthMatch = RegExp(r'(\d+)\s*letter').firstMatch(lowerPrompt);
+    if (lengthMatch != null) {
+      final length = int.parse(lengthMatch.group(1)!);
+      print('🎯 Detected length pattern: $length letters');
+      final words = _getFallbackWordsForLength(length, existingWords);
+      print('📝 Available fallback words for $length letters: $words');
+      return words;
+    }
+    
+    // Detect phonics patterns
+    if (lowerPrompt.contains('short a')) {
+      return _getFallbackWordsForPattern('short_a', existingWords);
+    } else if (lowerPrompt.contains('short e')) {
+      return _getFallbackWordsForPattern('short_e', existingWords);
+    } else if (lowerPrompt.contains('short i')) {
+      return _getFallbackWordsForPattern('short_i', existingWords);
+    } else if (lowerPrompt.contains('short o')) {
+      return _getFallbackWordsForPattern('short_o', existingWords);
+    } else if (lowerPrompt.contains('short u')) {
+      return _getFallbackWordsForPattern('short_u', existingWords);
+    } else if (lowerPrompt.contains('long a')) {
+      return _getFallbackWordsForPattern('long_a', existingWords);
+    } else if (lowerPrompt.contains('long e')) {
+      return _getFallbackWordsForPattern('long_e', existingWords);
+    } else if (lowerPrompt.contains('long i')) {
+      return _getFallbackWordsForPattern('long_i', existingWords);
+    } else if (lowerPrompt.contains('long o')) {
+      return _getFallbackWordsForPattern('long_o', existingWords);
+    } else if (lowerPrompt.contains('long u')) {
+      return _getFallbackWordsForPattern('long_u', existingWords);
+    }
+    
+    // No specific pattern detected
+    return [];
+  }
+  
+  /// Get fallback words for a specific ending pattern
+  List<String> _getFallbackWordsForEnding(String ending, Set<String> existingWords) {
+    Map<String, List<String>> endingWords = {
+      'an': ['can', 'man', 'ran', 'pan', 'fan', 'tan', 'ban', 'van', 'plan', 'than', 'scan', 'span', 'clan', 'gran', 'bran', 'flan'],
+      'at': ['cat', 'bat', 'hat', 'mat', 'rat', 'sat', 'pat', 'fat', 'vat', 'chat', 'flat', 'that', 'brat', 'scat', 'spat', 'stat'],
+      'in': ['pin', 'win', 'tin', 'bin', 'fin', 'chin', 'thin', 'skin', 'spin', 'grin', 'twin', 'shin', 'din', 'kin', 'sin', 'gin'],
+      'un': ['run', 'sun', 'fun', 'bun', 'gun', 'nun', 'pun', 'dun', 'spun', 'stun', 'shun', 'hun', 'tun'],
+      'it': ['sit', 'hit', 'bit', 'fit', 'kit', 'lit', 'pit', 'wit', 'quit', 'spit', 'knit', 'grit', 'flit', 'slit', 'twit', 'zit'],
+      'et': ['pet', 'get', 'let', 'met', 'net', 'set', 'bet', 'jet', 'wet', 'yet', 'vet', 'fret', 'debt'],
+      'ot': ['hot', 'pot', 'dot', 'got', 'lot', 'not', 'cot', 'jot', 'rot', 'tot', 'shot', 'spot', 'plot', 'knot', 'slot', 'blot', 'clot', 'scot', 'bot', 'mot', 'trot'],
+      'ut': ['cut', 'but', 'hut', 'nut', 'put', 'gut', 'jut', 'rut', 'shut', 'strut', 'glut'],
+      'ed': ['red', 'bed', 'fed', 'wed', 'led', 'shed', 'sled', 'fled', 'bred', 'shred'],
+      'ay': ['day', 'way', 'say', 'may', 'bay', 'hay', 'lay', 'pay', 'play', 'stay', 'pray', 'gray', 'clay', 'tray', 'spray', 'stray'],
+      'en': ['pen', 'ten', 'men', 'hen', 'den', 'when', 'then', 'glen', 'wren'],
+      'ig': ['big', 'dig', 'fig', 'pig', 'wig', 'jig', 'rig', 'twig', 'brig'],
+      'og': ['dog', 'log', 'hog', 'jog', 'fog', 'bog', 'cog', 'frog', 'clog'],
+      'ug': ['bug', 'hug', 'jug', 'mug', 'rug', 'tug', 'dug', 'pug', 'slug', 'drug', 'snug', 'plug'],
+    };
+    
+    final words = endingWords[ending.toLowerCase()] ?? [];
+    return words.where((word) => !existingWords.contains(word)).toList();
+  }
+  
+  /// Get fallback words for specific word lengths
+  List<String> _getFallbackWordsForLength(int length, Set<String> existingWords) {
+    Map<int, List<String>> lengthWords = {
+      3: ['cat', 'dog', 'sun', 'car', 'run', 'fun', 'big', 'red', 'hot', 'box', 'cup', 'hat', 'bag', 'pen', 'bus', 'egg', 'leg', 'arm', 'eye', 'ear'],
+      4: ['book', 'tree', 'home', 'play', 'moon', 'hand', 'fish', 'bird', 'cake', 'game', 'ball', 'door', 'food', 'good', 'love', 'help', 'walk', 'talk', 'look', 'read'],
+      5: ['house', 'water', 'happy', 'green', 'brown', 'black', 'white', 'plant', 'music', 'chair', 'table', 'light', 'paper', 'start', 'smile', 'laugh', 'learn', 'teach', 'words', 'sound'],
+      6: ['school', 'family', 'friend', 'animal', 'garden', 'flower', 'orange', 'purple', 'yellow', 'pencil', 'window', 'bright', 'simple', 'little', 'middle', 'change', 'create', 'health', 'growth', 'spring'],
+    };
+    
+    final words = lengthWords[length] ?? [];
+    return words.where((word) => !existingWords.contains(word)).toList();
+  }
+  
+  /// Get fallback words for phonics patterns
+  List<String> _getFallbackWordsForPattern(String pattern, Set<String> existingWords) {
+    Map<String, List<String>> patternWords = {
+      'short_a': ['cat', 'bat', 'hat', 'can', 'man', 'ran', 'bag', 'tag', 'nap', 'cap', 'map'],
+      'short_e': ['bed', 'red', 'fed', 'net', 'bet', 'get', 'let', 'met', 'pet', 'set', 'wet'],
+      'short_i': ['bit', 'hit', 'sit', 'fit', 'big', 'dig', 'fig', 'pig', 'win', 'pin', 'tin'],
+      'short_o': ['hot', 'pot', 'dot', 'got', 'box', 'fox', 'top', 'hop', 'pop', 'cop', 'mop'],
+      'short_u': ['cut', 'but', 'hut', 'nut', 'run', 'sun', 'fun', 'bun', 'cup', 'pup', 'up'],
+      'long_a': ['cake', 'make', 'take', 'lake', 'game', 'name', 'same', 'came', 'day', 'way', 'say'],
+      'long_e': ['tree', 'free', 'see', 'bee', 'knee', 'feet', 'meet', 'sweet', 'green', 'seen', 'been'],
+      'long_i': ['bike', 'like', 'hike', 'time', 'dime', 'lime', 'nine', 'line', 'mine', 'fine', 'pine'],
+      'long_o': ['boat', 'coat', 'goat', 'road', 'soap', 'rope', 'hope', 'note', 'home', 'bone', 'cone'],
+      'long_u': ['cute', 'tube', 'cube', 'huge', 'tune', 'blue', 'glue', 'true', 'due', 'sue', 'clue'],
+    };
+    
+    final words = patternWords[pattern] ?? [];
+    return words.where((word) => !existingWords.contains(word)).toList();
   }
 
   Future<void> _startGame() async {
@@ -297,7 +452,14 @@ class _TeacherReviewScreenState extends State<TeacherReviewScreen> {
   Widget build(BuildContext context) {
     final isTablet = MediaQuery.of(context).size.shortestSide >= 600;
     
-    return Scaffold(
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (!didPop) {
+          await _cancelAndCleanup();
+        }
+      },
+      child: Scaffold(
       backgroundColor: AppColors.gameBackground,
       appBar: AppBar(
         title: Text('Review: ${widget.gameSession.gameName}'),
@@ -469,7 +631,7 @@ class _TeacherReviewScreenState extends State<TeacherReviewScreen> {
                 children: [
                   Expanded(
                     child: OutlinedButton(
-                      onPressed: () => Navigator.pop(context),
+                      onPressed: () => _cancelAndCleanup(),
                       style: OutlinedButton.styleFrom(
                         foregroundColor: AppColors.textSecondary,
                         side: BorderSide(color: AppColors.lightGray),
@@ -498,6 +660,7 @@ class _TeacherReviewScreenState extends State<TeacherReviewScreen> {
           ],
         ),
       ),
+    ),
     );
   }
 }
