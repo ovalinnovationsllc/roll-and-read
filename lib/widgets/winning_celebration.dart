@@ -75,33 +75,67 @@ class _WinningCelebrationState extends State<WinningCelebration>
       curve: Curves.bounceOut,
     ));
 
-    _startCelebration();
-  }
-
-  void _startCelebration() async {
-    // Start confetti immediately
-    _confettiController.play();
-    
-    // Stagger the animations
-    await Future.delayed(const Duration(milliseconds: 100));
-    _fadeController.forward();
-    
-    await Future.delayed(const Duration(milliseconds: 200));
-    _scaleController.forward();
-    
-    await Future.delayed(const Duration(milliseconds: 400));
-    _bounceController.forward();
-    
-    // Auto-complete after 4 seconds
-    Future.delayed(const Duration(seconds: 4), () {
-      if (mounted && widget.onComplete != null) {
-        widget.onComplete!();
+    // Use a synchronous approach - no async operations!
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _startCelebrationSafely();
       }
     });
   }
 
+  void _startCelebrationSafely() {
+    if (!mounted) return;
+    
+    try {
+      // Start confetti
+      _confettiController.play();
+      
+      // Start fade animation immediately
+      _fadeController.forward();
+      
+      // Chain animations with delays (but not async/await)
+      Future.delayed(const Duration(milliseconds: 200), () {
+        if (mounted) {
+          try {
+            _scaleController.forward();
+          } catch (e) {
+            // Controller was disposed, ignore
+          }
+        }
+      });
+      
+      Future.delayed(const Duration(milliseconds: 400), () {
+        if (mounted) {
+          try {
+            _bounceController.forward();
+          } catch (e) {
+            // Controller was disposed, ignore
+          }
+        }
+      });
+      
+      // Auto-complete after 4 seconds
+      if (widget.onComplete != null) {
+        Future.delayed(const Duration(seconds: 4), () {
+          if (mounted) {
+            widget.onComplete!();
+          }
+        });
+      }
+    } catch (e) {
+      // If any initial animation fails, just continue
+    }
+  }
+
   @override
   void dispose() {
+    // Stop all animations before disposing
+    _confettiController.stop();
+    _scaleController.stop();
+    _fadeController.stop();
+    _bounceController.stop();
+    
+    // Now dispose them
     _confettiController.dispose();
     _scaleController.dispose();
     _fadeController.dispose();

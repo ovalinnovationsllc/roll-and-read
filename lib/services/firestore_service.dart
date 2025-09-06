@@ -840,11 +840,18 @@ class FirestoreService {
   static Future<GameStateModel?> getGameState(String gameId) async {
     try {
       final doc = await _gameStatesCollection.doc(gameId.toUpperCase()).get();
-      if (doc.exists) {
-        return GameStateModel.fromMap(doc.data() as Map<String, dynamic>);
+      if (doc.exists && doc.data() != null) {
+        final data = doc.data();
+        if (data is Map<String, dynamic>) {
+          return GameStateModel.fromMap(data);
+        } else {
+          print('⚠️ Game state data is not a Map<String, dynamic>: ${data.runtimeType}');
+          return null;
+        }
       }
       return null;
     } catch (e) {
+      print('⚠️ Error getting game state: $e');
       return null;
     }
   }
@@ -1032,9 +1039,63 @@ class FirestoreService {
   /// Delete game session
   static Future<void> deleteGameSession(String gameId) async {
     try {
-      await _gamesCollection.doc(gameId.toUpperCase()).delete();
+      final gameDocId = gameId.toUpperCase();
+      final gameDoc = _gamesCollection.doc(gameDocId);
+      
+      // Delete all subcollections first
+      await _deleteSubcollections(gameDoc);
+      
+      // Also delete the corresponding gameState if it exists
+      try {
+        await _gameStatesCollection.doc(gameDocId).delete();
+        print('🗑️ Deleted gameState for game: $gameDocId');
+      } catch (e) {
+        print('⚠️ No gameState to delete for game: $gameDocId');
+        // Continue - not all games have gameStates
+      }
+      
+      // Then delete the main game document
+      await gameDoc.delete();
+      print('🗑️ Deleted game session: $gameDocId');
     } catch (e) {
+      print('❌ Error deleting game session: $e');
       rethrow;
+    }
+  }
+  
+  /// Helper method to delete all subcollections of a game document
+  static Future<void> _deleteSubcollections(DocumentReference gameDoc) async {
+    try {
+      // List of subcollections to delete
+      final subcollectionNames = ['word_generation_logs', 'analytics'];
+      
+      for (final collectionName in subcollectionNames) {
+        try {
+          final subcollection = gameDoc.collection(collectionName);
+          
+          // Get all documents in the subcollection
+          final snapshot = await subcollection.get();
+          
+          if (snapshot.docs.isNotEmpty) {
+            print('🗑️ Deleting ${snapshot.docs.length} documents from $collectionName');
+            
+            // Delete each document in the subcollection
+            for (final doc in snapshot.docs) {
+              await doc.reference.delete();
+            }
+            
+            print('✅ Deleted all documents from $collectionName');
+          } else {
+            print('📝 No documents found in $collectionName subcollection');
+          }
+        } catch (e) {
+          print('⚠️ Error deleting $collectionName subcollection: $e');
+          // Continue with other subcollections
+        }
+      }
+    } catch (e) {
+      print('⚠️ Error deleting subcollections: $e');
+      // Don't rethrow - we want to continue with deleting the main document
     }
   }
 

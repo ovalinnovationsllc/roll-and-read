@@ -116,7 +116,8 @@ class _RollAndReadGameState extends State<RollAndReadGame> {
     });
     
     try {
-      List<String> words = await DatamuseService.fetchLongUWords();
+      // Use the new Datamuse API to get words with long u sound
+      List<String> words = await DatamuseService.generateWordsFromPrompt("words with long u sound");
       List<List<String>> newGrid = DatamuseService.organizeIntoGrid(words);
       
       setState(() {

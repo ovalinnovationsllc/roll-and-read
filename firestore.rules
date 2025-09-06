@@ -34,16 +34,32 @@ service cloud.firestore {
       allow list: if isAuthenticatedTeacher();
     }
     
-    // Games collection - teachers manage, students can read for joining
+    // Games collection - teachers manage, students can read and update for joining
     match /games/{gameId} {
       // Students need to read games to join with codes
       allow read: if request.auth == null;
       
-      // Only authenticated teachers can create/modify/delete games
+      // Allow students to update games when joining (but not create/delete)
+      allow update: if request.auth == null;
+      
+      // Only authenticated teachers can create/delete games and manage them fully
+      allow create, delete: if isAuthenticatedTeacher();
       allow write: if isAuthenticatedTeacher();
       
       // Allow authenticated teachers to query games collection
       allow list: if isAuthenticatedTeacher();
+      
+      // Word generation logs subcollection - allow creation for logging, teachers can read/delete
+      match /word_generation_logs/{logId} {
+        allow create: if true; // Allow creation from any context during word generation
+        allow read, list, delete: if isAuthenticatedTeacher();
+      }
+      
+      // Analytics subcollection - allow creation for logging, teachers can read/delete  
+      match /analytics/{analyticsId} {
+        allow create: if true; // Allow creation from any context during analytics
+        allow read, list, delete: if isAuthenticatedTeacher();
+      }
     }
     
     // GameStates collection - used for active gameplay
@@ -51,8 +67,11 @@ service cloud.firestore {
       // Students need to read/write game states during gameplay
       allow read, write: if request.auth == null;
       
+      // Allow unauthenticated delete for maintenance cleanup of orphaned states
+      allow delete: if request.auth == null;
+      
       // Authenticated teachers can read/write/delete for management
-      allow read, write: if isAuthenticatedTeacher();
+      allow read, write, delete: if isAuthenticatedTeacher();
       
       // Allow authenticated teachers to query gameStates collection
       allow list: if isAuthenticatedTeacher();
@@ -68,6 +87,31 @@ service cloud.firestore {
       
       // Allow authenticated teachers to query word lists collection
       allow list: if isAuthenticatedTeacher();
+    }
+    
+    // Analytics and logging collections
+    match /word_generation_logs/{logId} {
+      // Allow creating logs from the app (both authenticated and unauthenticated)
+      allow create: if true;
+      
+      // Only authenticated teachers can read logs for analytics
+      allow read, list: if isAuthenticatedTeacher();
+    }
+    
+    match /word_generation_analytics/{analyticsId} {
+      // Allow creating analytics from the app (both authenticated and unauthenticated)
+      allow create: if true;
+      
+      // Only authenticated teachers can read analytics
+      allow read, list: if isAuthenticatedTeacher();
+    }
+    
+    match /teacher_usage_analytics/{usageId} {
+      // Allow creating usage analytics from the app (both authenticated and unauthenticated)
+      allow create: if true;
+      
+      // Only authenticated teachers can read usage analytics
+      allow read, list: if isAuthenticatedTeacher();
     }
     
     // Block access to any other collections

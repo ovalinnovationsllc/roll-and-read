@@ -2,7 +2,9 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:math' as math;
+import 'dart:io' show Platform;
 import 'package:flutter_tts/flutter_tts.dart';
+import '../utils/tts_helper.dart';
 import '../config/app_colors.dart';
 import '../widgets/animated_dice.dart';
 import '../widgets/player_avatar.dart';
@@ -53,6 +55,7 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
   int _currentDiceRoll = 0; // Track current dice value
   bool _hasSelectedThisTurn = false; // Track if player already selected for this dice roll
   String? _previousTurnPlayerId; // Track previous turn to detect turn changes
+  bool _gameCompletionInProgress = false; // Prevent multiple completion attempts
   
   // Game content - 6x6 grid
   late List<List<String>> gridContent;
@@ -82,6 +85,13 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
     await _flutterTts.setSpeechRate(0.4);
     await _flutterTts.setVolume(1.0);
     await _flutterTts.setPitch(1.0);
+    
+    // Set optimized voice for web
+    if (kIsWeb) {
+      await TTSHelper.setWebVoice(_flutterTts);
+    } else if (!kIsWeb && Platform.isIOS) {
+      await TTSHelper.setIOSVoice(_flutterTts);
+    }
   }
   
   @override
@@ -248,6 +258,10 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
                   navigator.pop(); // Close dialog
                   // Save results and return to home
                   await _saveGameResults();
+                  // CRITICAL: Clear the game session so celebration doesn't replay on app restart
+                  print('🧹 CLEARING GAME SESSION after results dialog...');
+                  await SessionService.clearGameSession();
+                  print('✅ GAME SESSION CLEARED - celebration won\'t replay');
                   // Navigate back to home page
                   if (mounted) {
                     navigator.popUntil((route) => route.isFirst);
@@ -338,12 +352,21 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
       
       final existingState = await GameStateService.getGameState(widget.gameSession.gameId);
       if (existingState == null) {
-        await GameStateService.initializeGameState(
-          widget.gameSession.gameId,
-          widget.gameSession.players.map((p) => p.userId).toList(),
-        );
+        final playerIds = widget.gameSession.players.map((p) => p.userId).toList();
+        
+        // Only initialize game state if we have players
+        if (playerIds.isNotEmpty) {
+          await GameStateService.initializeGameState(
+            widget.gameSession.gameId,
+            playerIds,
+          );
+        } else {
+          print('⚠️ GAME STATE: Skipping initialization for ${widget.gameSession.gameId} - no players yet');
+          // Game state will be initialized later when players join
+        }
       }
     } catch (e) {
+      print('❌ GAME STATE: Failed to initialize: $e');
       // Game state initialization failed, continue without it
     }
   }
@@ -850,6 +873,19 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
           
           _currentGameSession = gameSessionSnapshot.data ?? widget.gameSession;
           
+          // CRITICAL: Update the saved session when it changes
+          // This prevents rejoining completed games
+          if (gameSessionSnapshot.data != null) {
+            final updatedSession = gameSessionSnapshot.data!;
+            if (updatedSession.status == GameStatus.completed || 
+                updatedSession.status == GameStatus.cancelled) {
+              // Game is over - clear the saved session immediately
+              print('🎮 GAME OVER DETECTED: Status = ${updatedSession.status}');
+              print('🧹 Clearing saved game session to prevent rejoin...');
+              SessionService.clearGameSession();
+            }
+          }
+          
           return StreamBuilder<GameStateModel?>(
             stream: _gameStateStream,
             builder: (context, gameStateSnapshot) {
@@ -883,23 +919,67 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
               
               _currentGameState = newGameState;
               
+              // Check if game state is broken (no current turn player) and fix it
+              if (newGameState != null && 
+                  newGameState.currentTurnPlayerId == null && 
+                  _currentGameSession != null && 
+                  _currentGameSession!.playerIds.isNotEmpty &&
+                  !widget.isTeacherMode) {
+                print('🚨 DETECTED BROKEN GAME STATE: Attempting to fix...');
+                WidgetsBinding.instance.addPostFrameCallback((_) async {
+                  try {
+                    await GameStateService.fixBrokenGameState(
+                      newGameState.gameId, 
+                      _currentGameSession!.playerIds
+                    );
+                  } catch (e) {
+                    print('❌ Failed to fix broken game state: $e');
+                  }
+                });
+              }
+              
               // Check for winner and show celebration (moved from build method)
               final winnerId = _currentGameState?.checkForWinner();
-              if (winnerId != null && !_gameEnded) {
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  if (mounted) {
+              
+              if (winnerId != null && !_gameEnded && !_gameCompletionInProgress) {
+                WidgetsBinding.instance.addPostFrameCallback((_) async {
+                  if (mounted && !_gameCompletionInProgress) {
+                    _gameCompletionInProgress = true; // Prevent multiple attempts
                     _showWinnerDialog(winnerId);
+                    
+                    // Automatically end the game session when winner is detected
+                    // But only if it's not already completed and we have a valid session
+                    if (_currentGameSession?.status == GameStatus.inProgress) {
+                      try {
+                        await GameSessionService.endGameSession(
+                          gameId: _currentGameSession!.gameId,
+                          winnerId: winnerId,
+                        );
+                      } catch (e) {
+                        // Check if the error is because the game was already completed
+                        if (e.toString().contains('Game not found') || e.toString().contains('already completed')) {
+                          print('ℹ️ Game completion attempted but game was already completed - this is normal');
+                        } else {
+                          print('❌ FAILED TO COMPLETE: Error completing game ${_currentGameSession?.gameId}: $e');
+                        }
+                        // Don't reset the flag - game completion was attempted
+                      }
+                    } else {
+                      _gameCompletionInProgress = false;
+                    }
                   }
                 });
               }
               
               // Check if game session has ended (for students)
+              // CRITICAL: DON'T NAVIGATE AWAY DURING CELEBRATION!!!
               if (!widget.isTeacherMode && _currentGameSession != null) {
-                if (_currentGameSession!.status == GameStatus.completed || 
-                    _currentGameSession!.status == GameStatus.cancelled) {
-                  // Game ended by teacher - navigate back to home
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                // Only handle early termination - NOT normal game completion with a winner
+                if (_currentGameSession!.status == GameStatus.cancelled) {
+                  // Game was cancelled - navigate away AND clear session
+                  WidgetsBinding.instance.addPostFrameCallback((_) async {
                     if (mounted) {
+                      await SessionService.clearGameSession();
                       Navigator.of(context).popUntil((route) => route.isFirst);
                     }
                   });
@@ -910,13 +990,15 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
                         CircularProgressIndicator(),
                         SizedBox(height: 16),
                         Text(
-                          'Game ended by teacher',
+                          'Game cancelled by teacher',
                           style: TextStyle(fontSize: 16, color: AppColors.textSecondary),
                         ),
                       ],
                     ),
                   );
                 }
+                // DO NOT handle GameStatus.completed here! 
+                // Let the winner celebration complete first!
               }
               
               if (_currentGameState == null) {

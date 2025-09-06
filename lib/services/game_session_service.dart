@@ -65,6 +65,8 @@ class GameSessionService {
         finalWordGrid = await AIWordService.generateWordGrid(
           prompt: aiPrompt,
           difficulty: difficulty ?? 'elementary',
+          gameId: gameId,
+          gameName: gameName,
         );
         
         // Save the AI-generated word list to local storage for reuse
@@ -123,29 +125,52 @@ class GameSessionService {
       final gameSession = await FirestoreService.getGameSession(gameId.toUpperCase());
       
       if (gameSession == null) {
+        safePrint('❌ JOIN GAME FAILED: Game not found - $gameId');
         throw Exception('Game not found');
       }
       
+      safePrint('🎮 JOIN GAME ATTEMPT: ${gameSession.gameId} by ${user.displayName}');
+      safePrint('🎮 Game Status: ${gameSession.status}');
+      safePrint('🎮 Max Players: ${gameSession.maxPlayers}');
+      safePrint('🎮 Current Players: ${gameSession.players.length}');
+      safePrint('🎮 Player IDs: ${gameSession.playerIds}');
 
-      if (gameSession.isFull) {
+      if (gameSession.isFull && !gameSession.playerIds.contains(user.id)) {
+        safePrint('❌ JOIN GAME FAILED: Game is full');
         throw Exception('Game is full');
       }
 
+      // If user is already in the game, allow them to rejoin
       if (gameSession.playerIds.contains(user.id)) {
-        throw Exception('You are already in this game');
+        safePrint('🔄 User already in game, allowing rejoin');
+        // Allow rejoining if game is waiting or in progress
+        if (gameSession.status == GameStatus.waitingForPlayers || gameSession.status == GameStatus.inProgress) {
+          return gameSession; // Just return the existing game session
+        } else {
+          safePrint('❌ JOIN GAME FAILED: Game has ended');
+          throw Exception('You are already in this game, but it has ended.');
+        }
       }
 
       if (gameSession.status != GameStatus.waitingForPlayers) {
+        safePrint('❌ JOIN GAME FAILED: Game status is ${gameSession.status}');
         
-        // Provide clearer error messages based on game status
-        if (gameSession.status == GameStatus.inProgress) {
-          throw Exception('This game has already started. Ask your teacher to create a new game.');
-        } else if (gameSession.status == GameStatus.completed) {
-          throw Exception('This game has ended. Ask your teacher to create a new game.');
-        } else if (gameSession.status == GameStatus.cancelled) {
-          throw Exception('This game was cancelled. Ask your teacher to create a new game.');
+        // Special case: Allow joining in-progress games if they have available slots
+        // This helps when games auto-start but still need more players
+        if (gameSession.status == GameStatus.inProgress && !gameSession.isFull) {
+          safePrint('⚡ SPECIAL CASE: Allowing join to in-progress game with available slots');
+          // Continue with normal join logic below
         } else {
-          throw Exception('This game is not accepting new players.');
+          // Provide clearer error messages based on game status
+          if (gameSession.status == GameStatus.inProgress) {
+            throw Exception('This game has already started. Ask your teacher to create a new game.');
+          } else if (gameSession.status == GameStatus.completed) {
+            throw Exception('This game has ended. Ask your teacher to create a new game.');
+          } else if (gameSession.status == GameStatus.cancelled) {
+            throw Exception('This game was cancelled. Ask your teacher to create a new game.');
+          } else {
+            throw Exception('This game is not accepting new players.');
+          }
         }
       }
       
@@ -198,21 +223,31 @@ class GameSessionService {
         // We can't import SessionService here to avoid circular dependencies
       }
       
-      // Check if game is now full and should auto-start (need at least 2 players)
-      final shouldAutoStart = updatedGame.isFull && updatedGame.canStart;
+      // Check if game should auto-start 
+      // Auto-start when game has at least 1 player (allows 1-2 player games to start immediately)
+      final shouldAutoStart = updatedGame.canStart;
+      safePrint('🎮 AUTO-START CHECK: isFull=${updatedGame.isFull}, canStart=${updatedGame.canStart}, maxPlayers=${updatedGame.maxPlayers}');
+      safePrint('🎮 Should auto-start: $shouldAutoStart');
+      
       final finalGame = shouldAutoStart ? updatedGame.startGame() : updatedGame;
+      
+      if (shouldAutoStart) {
+        safePrint('🚀 AUTO-STARTING GAME: ${finalGame.gameId} (${updatedGame.players.length}/${updatedGame.maxPlayers} players joined)');
+      }
       
       // Save the updated game
       await FirestoreService.updateGameSession(finalGame);
       
-      // Handle auto-start logic
-      if (shouldAutoStart && gameSession.status == GameStatus.waitingForPlayers) {
-        try {
-          // Initialize game state for the auto-started game
+      // Initialize game state if this is the first player joining or if auto-starting
+      try {
+        final existingState = await GameStateService.getGameState(finalGame.gameId);
+        if (existingState == null && finalGame.playerIds.isNotEmpty) {
+          print('🎮 FIRST PLAYER JOIN: Initializing game state for ${finalGame.gameId} with ${finalGame.playerIds.length} players');
           await GameStateService.initializeGameState(finalGame.gameId, finalGame.playerIds);
-        } catch (e) {
-          // Don't fail the join operation if this fails
         }
+      } catch (e) {
+        print('⚠️ Failed to initialize game state during join: $e');
+        // Don't fail the join operation if this fails
       }
       
       return finalGame;
@@ -341,8 +376,11 @@ class GameSessionService {
   // Delete a game session
   static Future<void> deleteGameSession(String gameId) async {
     try {
+      print('🗑️ GameSessionService: Starting deletion of game: ${gameId.toUpperCase()}');
       await FirestoreService.deleteGameSession(gameId.toUpperCase());
+      print('✅ GameSessionService: Successfully deleted game: ${gameId.toUpperCase()}');
     } catch (e) {
+      print('❌ GameSessionService: Error deleting game ${gameId.toUpperCase()}: $e');
       rethrow;
     }
   }
@@ -413,7 +451,6 @@ class GameSessionService {
       
       // Client-side sorting by creation time (newest first) since we removed orderBy to avoid index requirement
       activeGames.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-      
       
       return activeGames;
     });

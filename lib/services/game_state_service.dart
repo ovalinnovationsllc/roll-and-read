@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/game_state_model.dart';
 import 'firestore_service.dart';
 
@@ -5,6 +6,12 @@ class GameStateService {
   // Initialize game state when a game starts
   static Future<void> initializeGameState(String gameId, List<String> playerIds) async {
     try {
+      print('🎮 GAME STATE INIT: Initializing game $gameId with players: $playerIds');
+      
+      if (playerIds.isEmpty) {
+        print('❌ GAME STATE INIT: No players provided! Cannot initialize game state.');
+        throw Exception('Cannot initialize game state: no players provided');
+      }
       
       // Create maps for player data
       final Map<String, Set<String>> playerCompletedCells = <String, Set<String>>{};
@@ -15,26 +22,103 @@ class GameStateService {
         playerScores[playerId] = 0;
       }
       
+      final firstPlayerId = playerIds[0];
+      print('🎮 GAME STATE INIT: Setting first turn to player: $firstPlayerId');
+      
       final gameState = GameStateModel(
         gameId: gameId,
         playerCompletedCells: playerCompletedCells,
         playerScores: playerScores,
-        currentTurnPlayerId: playerIds.isNotEmpty ? playerIds[0] : null, // Start with first player
+        currentTurnPlayerId: firstPlayerId, // Start with first player
         simultaneousPlay: false, // Turn-based play with teacher validation
       );
       
       await FirestoreService.saveGameState(gameState);
+      print('✅ GAME STATE INIT: Successfully initialized game state for $gameId');
       
     } catch (e) {
+      print('❌ GAME STATE INIT: Failed to initialize game state for $gameId: $e');
       rethrow;
     }
   }
 
-  // Get game state stream for real-time updates (using polling for local storage)
+  // Fix broken game state by reinitializing with current players
+  static Future<void> fixBrokenGameState(String gameId, List<String> playerIds) async {
+    try {
+      print('🔧 FIXING BROKEN GAME STATE: Reinitializing $gameId with players: $playerIds');
+      
+      if (playerIds.isEmpty) {
+        print('❌ CANNOT FIX: No players provided');
+        return;
+      }
+      
+      // Get existing game state
+      final existingState = await FirestoreService.getGameState(gameId.toUpperCase());
+      
+      // Create new state preserving any existing scores but fixing the turn
+      final Map<String, Set<String>> playerCompletedCells = <String, Set<String>>{};
+      final Map<String, int> playerScores = <String, int>{};
+      
+      for (final playerId in playerIds) {
+        playerCompletedCells[playerId] = existingState?.playerCompletedCells[playerId] ?? <String>{};
+        playerScores[playerId] = existingState?.playerScores[playerId] ?? 0;
+      }
+      
+      final firstPlayerId = playerIds[0];
+      print('🔧 FIXING: Setting turn to first player: $firstPlayerId');
+      
+      final fixedGameState = GameStateModel(
+        gameId: gameId,
+        playerCompletedCells: playerCompletedCells,
+        playerScores: playerScores,
+        currentTurnPlayerId: firstPlayerId, // Reset to first player
+        simultaneousPlay: false,
+        currentPlayerId: null, // Reset current player
+        lastDiceRoll: null, // Reset dice
+        currentDiceValue: null, // Reset dice value
+        pendingPronunciations: <String, PronunciationAttempt>{}, // Clear pending
+        pronunciationLog: existingState?.pronunciationLog ?? [], // Preserve log
+      );
+      
+      await FirestoreService.updateGameState(fixedGameState);
+      print('✅ FIXED: Game state repaired for $gameId');
+      
+    } catch (e) {
+      print('❌ FAILED TO FIX: Game state repair failed for $gameId: $e');
+    }
+  }
+
+  // Get game state stream for real-time updates (using Firestore real-time listener)
   static Stream<GameStateModel?> getGameStateStream(String gameId) {
-    return Stream.periodic(const Duration(seconds: 2), (_) async {
-      return await FirestoreService.getGameState(gameId.toUpperCase());
-    }).asyncMap((future) => future);
+    return FirebaseFirestore.instance
+        .collection('gameStates')
+        .doc(gameId.toUpperCase())
+        .snapshots()
+        .map((snapshot) {
+      try {
+        if (snapshot.exists && snapshot.data() != null) {
+          final data = snapshot.data();
+          if (data is Map<String, dynamic>) {
+            final gameState = GameStateModel.fromMap(data);
+            
+            // Check if game state is in a broken state (no current turn player)
+            if (gameState.currentTurnPlayerId == null) {
+              print('🚨 BROKEN GAME STATE DETECTED: No current turn player for game ${gameState.gameId}');
+              // We can't fix it here in the stream, but we can log it
+            }
+            
+            return gameState;
+          } else {
+            print('⚠️ Game state stream data is not a Map<String, dynamic>: ${data.runtimeType}');
+            return null;
+          }
+        }
+        return null;
+      } catch (e) {
+        print('⚠️ Error parsing game state from stream: $e');
+        return null;
+      }
+    });
   }
 
   // Get game state directly (non-stream)

@@ -95,6 +95,18 @@ class SessionService {
     return null;
   }
 
+  // Clear only the game session (keeps user logged in)
+  static Future<void> clearGameSession() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_gameSessionKey);
+      await prefs.remove(_currentRouteKey);
+      safePrint('🧹 Cleared game session (user remains logged in)');
+    } catch (e) {
+      safeError('Error clearing game session: $e');
+    }
+  }
+
   // Save current route
   static Future<void> saveCurrentRoute(String route) async {
     try {
@@ -227,12 +239,21 @@ class SessionService {
           gameExistsInStorage = false;
         }
         
+        // CRITICAL FIX: Don't clear teacher sessions based on game storage checks!
+        // Teachers go to dashboard, not the game
+        final isTeacher = user?.isAdmin ?? false;
+        
         // Only clear session if game is DEFINITELY completed/cancelled or very old
-        // Don't clear just because storage check fails
-        if (isCompletedOrCancelled || isOldGame || !gameExistsInStorage) {
-          safePrint('🚨 CLEARING SESSION: Found stale/completed game session on app launch');
+        // For teachers, ONLY check completed/cancelled status, NOT storage
+        if (isCompletedOrCancelled || isOldGame) {
+          safePrint('🚨 CLEARING SESSION: Found completed/old game session');
           safePrint('🚨 Game ID: ${gameSession.gameId}, Status: ${gameSession.status}, Old: $isOldGame');
           safePrint('🚨 Reason: isCompleted=$isCompletedOrCancelled, isOld=$isOldGame');
+          await clearSession();
+          return '/';
+        } else if (!isTeacher && !gameExistsInStorage) {
+          // Only clear student sessions if game doesn't exist
+          safePrint('🚨 CLEARING STUDENT SESSION: Game no longer exists in storage');
           await clearSession();
           return '/';
         } else {
@@ -243,16 +264,31 @@ class SessionService {
 
       // If we have a saved route and valid session data, use it
       if (savedRoute != null && user != null) {
-        // Only restore multiplayer game if the game is actually active
-        if (savedRoute.startsWith('/multiplayer-game') && gameSession != null && 
-           (gameSession.status == GameStatus.inProgress || gameSession.status == GameStatus.waitingForPlayers)) {
-          safePrint('✅ Restoring active game session: ${gameSession.gameId}');
-          safePrint('✅ User: ${user.displayName} (${user.isAdmin ? 'Teacher' : 'Student'})');
-          safePrint('✅ Game Status: ${gameSession.status}');
-          return savedRoute;
-        } else if (savedRoute.startsWith('/admin-dashboard') && user.isAdmin) {
+        // Teachers should go to dashboard, not rejoin games
+        if (user.isAdmin && savedRoute.startsWith('/admin-dashboard')) {
           // Teachers can always return to dashboard
           safePrint('✅ Restoring teacher dashboard');
+          // Clear any leftover game session for teachers
+          if (gameSession != null) {
+            safePrint('🧹 Clearing teacher\'s old game session (teachers monitor, not play)');
+            await clearGameSession();
+          }
+          return savedRoute;
+        } else if (user.isAdmin) {
+          // Teacher but not on dashboard route - send to dashboard
+          safePrint('🎓 Teacher detected - redirecting to dashboard');
+          if (gameSession != null) {
+            await clearGameSession();
+          }
+          return '/admin-dashboard';
+        }
+        
+        // Students: Only restore multiplayer game if the game is actually active
+        if (!user.isAdmin && savedRoute.startsWith('/multiplayer-game') && gameSession != null && 
+           (gameSession.status == GameStatus.inProgress || gameSession.status == GameStatus.waitingForPlayers)) {
+          safePrint('✅ Restoring active game session for student: ${gameSession.gameId}');
+          safePrint('✅ Student: ${user.displayName}');
+          safePrint('✅ Game Status: ${gameSession.status}');
           return savedRoute;
         } else {
           // If user has a saved game route but game is not active, clear the game session

@@ -8,9 +8,10 @@ class ContentFilterService {
     'dickhead', 'bullshit', 'motherfucker', 'goddamn',
     
     // Violence/weapons
-    'kill', 'murder', 'death', 'die', 'dead', 'blood', 'gun', 'knife', 'weapon', 
+    'kill', 'murder', 'death', 'die', 'dead', 'blood', 'gun', 'guns', 'knife', 'weapon', 
     'bomb', 'explode', 'suicide', 'stab', 'shoot', 'violence', 'violent', 'fight',
-    'punch', 'kick', 'hurt', 'pain', 'war', 'attack', 'destroy',
+    'punch', 'kick', 'hurt', 'pain', 'war', 'attack', 'destroy', 'sword', 'rifle',
+    'pistol', 'bullet', 'shooting', 'killing', 'beaten', 'slap', 'smash', 'crush',
     
     // Substances
     'drug', 'drugs', 'alcohol', 'beer', 'wine', 'drunk', 'smoke', 'cigarette',
@@ -27,6 +28,16 @@ class ContentFilterService {
     // Adult themes
     'sex', 'sexy', 'kiss', 'dating', 'boyfriend', 'girlfriend', 'love', 'marry',
     'pregnant', 'baby', 'adult', 'mature',
+    
+    // Too advanced/confusing words for children with reading difficulties
+    'avid', 'puff', 'soma', 'pule', 'sway', 'aura', 'slew', 'snap',
+    // Complex Long A words that are too advanced
+    'apprehensive', 'articulate', 'austere', 'abrasive', 'acquiesce', 'amenable', 
+    'aggregate', 'ambivalence', 'accentuate', 'affable', 'aureate', 'accede', 
+    'alcove', 'avarice', 'astute', 'ample', 'anserine', 'advance', 'alleviate', 
+    'amicable', 'asinine', 'acute', 'abide', 'accolade', 'adequate', 'ameliorate', 
+    'aggrandize', 'anodyne', 'acquiescence', 'allure', 'ambiance', 'azure', 
+    'affectionate', 'aptitude',
     
     // Scary/inappropriate themes for children
     'ghost', 'zombie', 'monster', 'demon', 'devil', 'satan', 'evil', 'scary',

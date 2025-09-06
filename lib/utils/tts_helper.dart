@@ -37,6 +37,81 @@ class TTSHelper {
     }
   }
   
+  static Future<bool> setWebVoice(FlutterTts tts) async {
+    if (!kIsWeb) return false;
+    
+    try {
+      List<dynamic> voices = await tts.getVoices;
+      
+      // Filter for English voices
+      final englishVoices = voices.where((voice) => 
+        voice['locale']?.toString().contains('en') ?? false
+      ).toList();
+      
+      // Preferred voices for web (natural-sounding voices)
+      final preferredVoiceNames = [
+        // Microsoft Edge Natural voices (most natural sounding)
+        "Microsoft Aria Online (Natural) - English (United States)",
+        "Microsoft Jenny Online (Natural) - English (United States)",
+        "Microsoft Guy Online (Natural) - English (United States)",
+        "Microsoft Mark Online (Natural) - English (United States)",
+        
+        // macOS system voices (high quality)
+        "Alex",
+        "Samantha",
+        "Victoria",
+        "Daniel",
+        "Karen",
+        "Moira",
+        
+        // Google voices (less robotic than some alternatives)
+        "Google US English",
+        "Google UK English Male",
+        "Google UK English Female",
+        
+        // Generic natural voices
+        "US Male",
+        "US Female", 
+        "UK Male",
+        "UK Female",
+        "Male",
+        "Female",
+      ];
+      
+      // Try to find a preferred voice
+      for (final preferredName in preferredVoiceNames) {
+        final matchingVoice = englishVoices.firstWhere(
+          (voice) => voice['name']?.toString().toLowerCase().contains(preferredName.toLowerCase()) ?? false,
+          orElse: () => null,
+        );
+        
+        if (matchingVoice != null) {
+          await tts.setVoice({
+            "name": matchingVoice['name'],
+            "locale": matchingVoice['locale']
+          });
+          print("TTS: Set web voice to: ${matchingVoice['name']}");
+          return true;
+        }
+      }
+      
+      // Fallback: use first available English voice
+      if (englishVoices.isNotEmpty) {
+        await tts.setVoice({
+          "name": englishVoices[0]['name'],
+          "locale": englishVoices[0]['locale']
+        });
+        print("TTS: Using fallback voice: ${englishVoices[0]['name']}");
+        return true;
+      }
+      
+    } catch (e) {
+      print("Error setting web voice: $e");
+    }
+    
+    return false;
+  }
+  
   static Future<bool> setIOSVoice(FlutterTts tts) async {
     if (kIsWeb || !Platform.isIOS) return false;
     

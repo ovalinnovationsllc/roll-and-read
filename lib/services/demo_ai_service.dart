@@ -3,6 +3,46 @@
 
 class DemoAIService {
   static Map<String, List<List<String>>> _demoResponses = {
+    'cvc_at': [
+      ['cat', 'bat', 'rat', 'mat', 'sat', 'hat'],
+      ['fat', 'pat', 'vat', 'tat', 'flat', 'chat'],
+      ['cat', 'bat', 'rat', 'mat', 'sat', 'hat'],
+      ['fat', 'pat', 'vat', 'tat', 'flat', 'chat'],
+      ['cat', 'bat', 'rat', 'mat', 'sat', 'hat'],
+      ['fat', 'pat', 'vat', 'tat', 'flat', 'chat'],
+    ],
+    'cvc_it': [
+      ['sit', 'hit', 'bit', 'fit', 'kit', 'lit'],
+      ['pit', 'wit', 'spit', 'quit', 'knit', 'grit'],
+      ['sit', 'hit', 'bit', 'fit', 'kit', 'lit'],
+      ['pit', 'wit', 'spit', 'quit', 'knit', 'grit'],
+      ['sit', 'hit', 'bit', 'fit', 'kit', 'lit'],
+      ['pit', 'wit', 'spit', 'quit', 'knit', 'grit'],
+    ],
+    'cvc_et': [
+      ['pet', 'get', 'let', 'met', 'net', 'set'],
+      ['bet', 'jet', 'wet', 'yet', 'vet', 'fret'],
+      ['pet', 'get', 'let', 'met', 'net', 'set'],
+      ['bet', 'jet', 'wet', 'yet', 'vet', 'fret'],
+      ['pet', 'get', 'let', 'met', 'net', 'set'],
+      ['bet', 'jet', 'wet', 'yet', 'vet', 'fret'],
+    ],
+    'cvc_ot': [
+      ['hot', 'pot', 'dot', 'got', 'lot', 'not'],
+      ['cot', 'jot', 'rot', 'tot', 'shot', 'spot'],
+      ['hot', 'pot', 'dot', 'got', 'lot', 'not'],
+      ['cot', 'jot', 'rot', 'tot', 'shot', 'spot'],
+      ['hot', 'pot', 'dot', 'got', 'lot', 'not'],
+      ['cot', 'jot', 'rot', 'tot', 'shot', 'spot'],
+    ],
+    'cvc_ut': [
+      ['cut', 'but', 'hut', 'nut', 'put', 'gut'],
+      ['jut', 'rut', 'shut', 'strut', 'mutt', 'tut'],
+      ['cut', 'but', 'hut', 'nut', 'put', 'gut'],
+      ['jut', 'rut', 'shut', 'strut', 'mutt', 'tut'],
+      ['cut', 'but', 'hut', 'nut', 'put', 'gut'],
+      ['jut', 'rut', 'shut', 'strut', 'mutt', 'tut'],
+    ],
     'animals': [
       ['cat', 'dog', 'fish', 'bird', 'frog', 'bear'],
       ['lion', 'tiger', 'wolf', 'fox', 'deer', 'owl'],
@@ -69,12 +109,33 @@ class DemoAIService {
     // Simulate AI processing delay
     await Future.delayed(const Duration(seconds: 1));
 
+    final lowerPrompt = prompt.toLowerCase();
+    
+    // Check for CVC ending patterns first
+    if (lowerPrompt.contains('cvc') || lowerPrompt.contains('ending')) {
+      // Check for specific endings
+      if (lowerPrompt.contains('at')) {
+        return _demoResponses['cvc_at']!;
+      } else if (lowerPrompt.contains('it')) {
+        return _demoResponses['cvc_it']!;
+      } else if (lowerPrompt.contains('et')) {
+        return _demoResponses['cvc_et']!;
+      } else if (lowerPrompt.contains('ot')) {
+        return _demoResponses['cvc_ot']!;
+      } else if (lowerPrompt.contains('ut')) {
+        return _demoResponses['cvc_ut']!;
+      }
+    }
+
     // Find the best match for the prompt
     String bestMatch = 'animals'; // default
     double bestScore = 0.0;
 
     for (String key in _demoResponses.keys) {
-      double score = _calculateSimilarity(prompt.toLowerCase(), key);
+      // Skip CVC patterns in general matching
+      if (key.startsWith('cvc_')) continue;
+      
+      double score = _calculateSimilarity(lowerPrompt, key);
       if (score > bestScore) {
         bestScore = score;
         bestMatch = key;

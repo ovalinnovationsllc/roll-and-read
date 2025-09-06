@@ -20,6 +20,8 @@ import '../models/game_session_model.dart';
 import '../models/game_state_model.dart';
 import '../models/student_game_model.dart';
 import 'teacher_game_screen.dart';
+import 'teacher_review_screen.dart';
+import '../data/preset_word_lists.dart';
 
 class AdminDashboardPage extends StatefulWidget {
   final UserModel adminUser;
@@ -38,6 +40,7 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
   Map<String, dynamic>? _statistics;
   bool _loadingStats = true;
   List<GameSessionModel> _activeGames = [];
+  String _selectedPrompt = '';
   
   // Default word grid with child-friendly 4-6 character words
   static const List<List<String>> defaultWordGrid = [
@@ -887,10 +890,10 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
     List<WordListModel> filteredWordLists = [];
     String wordListSearchQuery = '';
     final wordListSearchController = TextEditingController();
-    final wordPromptController = TextEditingController();
     bool loadingWordLists = false;
-    String wordListMode = 'default'; // 'default', 'existing', or 'new'
+    String wordListMode = 'default'; // 'default', 'existing', 'new', or 'preset'
     int maxPlayers = 2; // Default to 2 players
+    String selectedPresetGrade = 'kindergarten'; // For preset lists
 
     // Filter word lists based on search query
     void filterWordLists(String query, StateSetter setDialogState) {
@@ -942,15 +945,19 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
                 segments: const [
                   ButtonSegment<String>(
                     value: 'default',
-                    label: Text('Quick Game'),
+                    label: Text('Quick'),
+                  ),
+                  ButtonSegment<String>(
+                    value: 'preset',
+                    label: Text('Preset Lists'),
                   ),
                   ButtonSegment<String>(
                     value: 'existing',
-                    label: Text('Saved Lists'),
+                    label: Text('Saved'),
                   ),
                   ButtonSegment<String>(
                     value: 'new',
-                    label: Text('Generate New'),
+                    label: Text('Generate'),
                   ),
                 ],
                 selected: {wordListMode},
@@ -1003,56 +1010,148 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
                 else if (availableWordLists.isEmpty)
                   const Text('No saved word lists found.')
                 else ...[
-                  // Search field for filtering word lists
-                  TextField(
-                    controller: wordListSearchController,
-                    decoration: InputDecoration(
-                      labelText: 'Search Word Lists',
-                      hintText: 'Type to search...',
-                      prefixIcon: const Icon(Icons.search),
-                      suffixIcon: wordListSearchQuery.isNotEmpty
-                          ? IconButton(
-                              icon: const Icon(Icons.clear),
-                              onPressed: () {
-                                wordListSearchController.clear();
-                                filterWordLists('', setDialogState);
-                              },
-                            )
-                          : null,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                    ),
-                    onChanged: (value) => filterWordLists(value, setDialogState),
-                  ),
-                  const SizedBox(height: 8),
-                  // Filtered dropdown
-                  DropdownButtonFormField<WordListModel>(
-                    value: selectedWordList,
-                    decoration: const InputDecoration(
-                      labelText: 'Select Word List',
-                      prefixIcon: Icon(Icons.list),
-                    ),
-                    hint: Text(filteredWordLists.isEmpty 
-                        ? 'No matching word lists' 
-                        : 'Choose a saved word list'),
-                    items: filteredWordLists
-                        .map((wordList) => DropdownMenuItem(
-                              value: wordList,
-                              child: Text(
-                                wordList.prompt.isEmpty ? 'Untitled List' : wordList.prompt,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ))
-                        .toList(),
-                    onChanged: (value) {
+                  // Autocomplete word list selection
+                  Autocomplete<WordListModel>(
+                    optionsBuilder: (TextEditingValue textEditingValue) {
+                      if (textEditingValue.text.isEmpty) {
+                        return const Iterable<WordListModel>.empty();
+                      }
+                      // Filter and remove duplicates based on prompt text
+                      final filteredOptions = availableWordLists.where((WordListModel option) {
+                        final prompt = option.prompt.toLowerCase();
+                        final searchQuery = textEditingValue.text.toLowerCase();
+                        return prompt.contains(searchQuery);
+                      }).toList();
+                      
+                      // Remove duplicates by prompt text
+                      final Map<String, WordListModel> uniqueOptions = {};
+                      for (final option in filteredOptions) {
+                        final key = option.prompt.isEmpty ? 'Untitled List' : option.prompt;
+                        if (!uniqueOptions.containsKey(key)) {
+                          uniqueOptions[key] = option;
+                        }
+                      }
+                      
+                      return uniqueOptions.values.take(10); // Limit to 10 results
+                    },
+                    displayStringForOption: (WordListModel option) => 
+                        option.prompt.isEmpty ? 'Untitled List' : option.prompt,
+                    onSelected: (WordListModel selection) {
                       setDialogState(() {
-                        selectedWordList = value;
+                        selectedWordList = selection;
                       });
+                    },
+                    fieldViewBuilder: (context, textEditingController, focusNode, onFieldSubmitted) {
+                      // Pre-populate if we have a selection
+                      if (selectedWordList != null && textEditingController.text.isEmpty) {
+                        textEditingController.text = selectedWordList!.prompt.isEmpty 
+                            ? 'Untitled List' 
+                            : selectedWordList!.prompt;
+                      }
+                      
+                      return TextField(
+                        controller: textEditingController,
+                        focusNode: focusNode,
+                        onSubmitted: (value) => onFieldSubmitted(),
+                        decoration: InputDecoration(
+                          labelText: 'Search & Select Word List',
+                          hintText: 'Type to search saved word lists...',
+                          prefixIcon: const Icon(Icons.search),
+                          suffixIcon: selectedWordList != null
+                              ? Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.check_circle, color: Colors.green, size: 20),
+                                    IconButton(
+                                      icon: const Icon(Icons.clear),
+                                      onPressed: () {
+                                        setDialogState(() {
+                                          selectedWordList = null;
+                                          textEditingController.clear();
+                                        });
+                                      },
+                                    ),
+                                  ],
+                                )
+                              : null,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                        onChanged: (value) {
+                          // Clear selection when typing
+                          if (selectedWordList != null) {
+                            setDialogState(() {
+                              selectedWordList = null;
+                            });
+                          }
+                        },
+                      );
+                    },
+                    optionsViewBuilder: (context, onSelected, options) {
+                      return Align(
+                        alignment: Alignment.topLeft,
+                        child: Material(
+                          elevation: 4.0,
+                          child: ConstrainedBox(
+                            constraints: const BoxConstraints(maxHeight: 200, maxWidth: 300),
+                            child: ListView.builder(
+                              shrinkWrap: true,
+                              itemCount: options.length,
+                              itemBuilder: (context, index) {
+                                final option = options.elementAt(index);
+                                final displayText = option.prompt.isEmpty ? 'Untitled List' : option.prompt;
+                                return InkWell(
+                                  onTap: () => onSelected(option),
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(16.0),
+                                    child: Text(
+                                      displayText,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                        ),
+                      );
                     },
                   ),
                 ],
+              ] else if (wordListMode == 'preset') ...[
+                DropdownButtonFormField<String>(
+                  value: selectedPresetGrade,
+                  decoration: const InputDecoration(
+                    labelText: 'Grade Level',
+                    prefixIcon: Icon(Icons.grade),
+                  ),
+                  items: const [
+                    DropdownMenuItem(
+                      value: 'kindergarten',
+                      child: Text('Kindergarten Sight Words'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'first',
+                      child: Text('First Grade Trick Words'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'second',
+                      child: Text('Second Grade Trick Words'),
+                    ),
+                  ],
+                  onChanged: (value) {
+                    setDialogState(() {
+                      selectedPresetGrade = value!;
+                    });
+                  },
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '✓ Randomly selects 36 words from the chosen list',
+                  style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+                ),
               ] else if (wordListMode == 'new') ...[
                 DropdownButtonFormField<String>(
                   value: selectedDifficulty,
@@ -1073,19 +1172,8 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
                   },
                 ),
                 const SizedBox(height: 16),
-                TextField(
-                  controller: wordPromptController,
-                  maxLines: 3,
-                  decoration: const InputDecoration(
-                    labelText: 'Word Theme/Topic for AI',
-                    hintText: 'e.g., "sight words for 1st grade" or "rhyming -at words"',
-                    helperText: 'Try: farm animals, CVC words, phonics patterns, math vocabulary',
-                    prefixIcon: Icon(Icons.lightbulb),
-                    alignLabelWithHint: true,
-                    border: OutlineInputBorder(),
-                    helperMaxLines: 2,
-                  ),
-                ),
+                // Simple pattern selection buttons instead of complex text input
+                _buildSimplePatternSelector(setDialogState),
               ] else ...[
                 const Text(
                   '✓ Start a quick game with a default list of simple words',
@@ -1120,6 +1208,8 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
                   
                   if (wordListMode == 'default') {
                     wordGrid = _getDefaultSimpleWordGrid();
+                  } else if (wordListMode == 'preset') {
+                    wordGrid = PresetWordLists.getRandomWordsForGrid(selectedPresetGrade);
                   } else if (wordListMode == 'existing' && selectedWordList != null) {
                     wordGrid = selectedWordList!.wordGrid;
                     // Update the word list usage stats
@@ -1135,9 +1225,9 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
                     maxPlayers: maxPlayers,
                     wordGrid: wordGrid,
                     useAIWords: useAIWords,
-                    aiPrompt: useAIWords ? (wordPromptController.text.trim().isEmpty 
+                    aiPrompt: useAIWords ? (_selectedPrompt.isEmpty 
                         ? 'Simple educational words for middle school students' 
-                        : wordPromptController.text.trim()) : null,
+                        : _selectedPrompt) : null,
                     difficulty: useAIWords ? selectedDifficulty : null,
                   );
                   
@@ -1147,7 +1237,8 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
                   
                   if (mounted) {
                     Navigator.of(context).pop();
-                    _showGameCreatedDialog(gameSession);
+                    // Navigate to teacher review screen instead of showing completion dialog
+                    _navigateToTeacherReview(gameSession, useAIWords ? _selectedPrompt : null, useAIWords ? selectedDifficulty : null);
                   }
                 } catch (e) {
                   setDialogState(() {
@@ -1423,9 +1514,9 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
     WordListModel? selectedWordList;
     List<WordListModel> availableWordLists = [];
     bool loadingWordLists = false;
-    String wordListMode = 'default'; // 'default', 'existing', or 'new'
+    String wordListMode = 'default'; // 'default', 'existing', 'new', or 'preset'
     int maxPlayers = 2; // Default to 2 players
-    final wordPromptController = TextEditingController();
+    String selectedPresetGrade = 'kindergarten'; // For preset lists
 
     // Load existing word lists
     void loadWordLists(StateSetter setDialogState) async {
@@ -1462,15 +1553,19 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
                 segments: const [
                   ButtonSegment<String>(
                     value: 'default',
-                    label: Text('Quick Game'),
+                    label: Text('Quick'),
+                  ),
+                  ButtonSegment<String>(
+                    value: 'preset',
+                    label: Text('Preset Lists'),
                   ),
                   ButtonSegment<String>(
                     value: 'existing',
-                    label: Text('Saved List'),
+                    label: Text('Saved'),
                   ),
                   ButtonSegment<String>(
                     value: 'new',
-                    label: Text('Generate New'),
+                    label: Text('Generate'),
                   ),
                 ],
                 selected: {wordListMode},
@@ -1546,6 +1641,38 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
                       });
                     },
                   ),
+              ] else if (wordListMode == 'preset') ...[
+                DropdownButtonFormField<String>(
+                  value: selectedPresetGrade,
+                  decoration: const InputDecoration(
+                    labelText: 'Grade Level',
+                    prefixIcon: Icon(Icons.grade),
+                  ),
+                  items: const [
+                    DropdownMenuItem(
+                      value: 'kindergarten',
+                      child: Text('Kindergarten Sight Words'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'first',
+                      child: Text('First Grade Trick Words'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'second',
+                      child: Text('Second Grade Trick Words'),
+                    ),
+                  ],
+                  onChanged: (value) {
+                    setDialogState(() {
+                      selectedPresetGrade = value!;
+                    });
+                  },
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '✓ Randomly selects 36 words from the chosen list',
+                  style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+                ),
               ] else if (wordListMode == 'new') ...[
                 DropdownButtonFormField<String>(
                   value: selectedDifficulty,
@@ -1566,19 +1693,8 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
                   },
                 ),
                 const SizedBox(height: 16),
-                TextField(
-                  controller: wordPromptController,
-                  maxLines: 3,
-                  decoration: const InputDecoration(
-                    labelText: 'Word Theme/Topic for AI',
-                    hintText: 'e.g., "sight words for 1st grade" or "rhyming -at words"',
-                    helperText: 'Try: farm animals, CVC words, phonics patterns, math vocabulary',
-                    prefixIcon: Icon(Icons.lightbulb),
-                    alignLabelWithHint: true,
-                    border: OutlineInputBorder(),
-                    helperMaxLines: 2,
-                  ),
-                ),
+                // Simple pattern selection buttons instead of complex text input
+                _buildSimplePatternSelector(setDialogState),
               ] else ...[
                 const Text(
                   '✓ Start a quick game with a default list of simple words',
@@ -1613,6 +1729,8 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
                   
                   if (wordListMode == 'default') {
                     wordGrid = _getDefaultSimpleWordGrid();
+                  } else if (wordListMode == 'preset') {
+                    wordGrid = PresetWordLists.getRandomWordsForGrid(selectedPresetGrade);
                   } else if (wordListMode == 'existing' && selectedWordList != null) {
                     wordGrid = selectedWordList!.wordGrid;
                     // Update the word list usage stats
@@ -1628,9 +1746,9 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
                     maxPlayers: maxPlayers,
                     wordGrid: wordGrid,
                     useAIWords: useAIWords,
-                    aiPrompt: useAIWords ? (wordPromptController.text.trim().isEmpty 
+                    aiPrompt: useAIWords ? (_selectedPrompt.isEmpty 
                         ? 'Simple educational words for middle school students' 
-                        : wordPromptController.text.trim()) : null,
+                        : _selectedPrompt) : null,
                     difficulty: useAIWords ? selectedDifficulty : null,
                   );
                   
@@ -1640,7 +1758,8 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
                   
                   if (mounted) {
                     Navigator.of(context).pop();
-                    _showGameCreatedDialog(gameSession);
+                    // Navigate to teacher review screen instead of showing completion dialog
+                    _navigateToTeacherReview(gameSession, useAIWords ? _selectedPrompt : null, useAIWords ? selectedDifficulty : null);
                   }
                 } catch (e) {
                   setDialogState(() {
@@ -2228,8 +2347,8 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
                       ),
                     ),
                     const SizedBox(width: 8),
-                    // Add delete button for waiting games
-                    if (game.status == GameStatus.waitingForPlayers)
+                    // Delete button for waiting and in-progress games
+                    if (game.status == GameStatus.waitingForPlayers || game.status == GameStatus.inProgress)
                       IconButton(
                         icon: const Icon(Icons.delete_outline),
                         iconSize: 20,
@@ -2561,8 +2680,8 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
                         ),
                       ),
                       const Spacer(),
-                      // Show delete button for waiting games
-                      if (game.status == GameStatus.waitingForPlayers) ...[
+                      // Delete button for waiting and in-progress games
+                      if (game.status == GameStatus.waitingForPlayers || game.status == GameStatus.inProgress) ...[
                         IconButton(
                           icon: const Icon(Icons.delete_outline),
                           iconSize: 20,
@@ -3930,6 +4049,150 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
     } else {
       return '${difference.inDays}d ago';
     }
+  }
+
+  // Navigate to teacher review screen for word preview and modification
+  void _navigateToTeacherReview(GameSessionModel gameSession, String? aiPrompt, String? difficulty) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => TeacherReviewScreen(
+          gameSession: gameSession,
+          adminUser: widget.adminUser,
+        ),
+      ),
+    ).then((_) {
+      // Refresh the UI when returning from review screen
+      if (mounted) {
+        setState(() {
+          // The StreamBuilder will automatically update with new data
+        });
+      }
+    });
+  }
+
+  // Build the simple pattern selector UI for teachers
+  Widget _buildSimplePatternSelector(StateSetter setDialogState) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Choose Word Pattern for Reading Practice:',
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+        ),
+        const SizedBox(height: 12),
+        
+        // Word Family Patterns
+        const Text('Word Families:', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            _buildPatternButton('-at words (cat, bat, hat)', 'words ending in -at', setDialogState),
+            _buildPatternButton('-un words (run, sun, fun)', 'words ending in -un', setDialogState),
+            _buildPatternButton('-it words (sit, hit, bit)', 'words ending in -it', setDialogState),
+            _buildPatternButton('-an words (can, man, ran)', 'words ending in -an', setDialogState),
+            _buildPatternButton('-in words (pin, win, tin)', 'words ending in -in', setDialogState),
+            _buildPatternButton('-ot words (hot, pot, dot)', 'words ending in -ot', setDialogState),
+          ],
+        ),
+        const SizedBox(height: 16),
+        
+        // Vowel Sounds
+        const Text('Vowel Sounds:', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            _buildPatternButton('Short A (cat, bat)', 'words with short a sound', setDialogState),
+            _buildPatternButton('Short E (bed, red)', 'words with short e sound', setDialogState),
+            _buildPatternButton('Short I (sit, hit)', 'words with short i sound', setDialogState),
+            _buildPatternButton('Short O (hot, pot)', 'words with short o sound', setDialogState),
+            _buildPatternButton('Short U (cut, run)', 'words with short u sound', setDialogState),
+            _buildPatternButton('Long A (cake, name)', 'words with long a sound', setDialogState),
+            _buildPatternButton('Long E (tree, see)', 'words with long e sound', setDialogState),
+            _buildPatternButton('Long I (bike, time)', 'words with long i sound', setDialogState),
+            _buildPatternButton('Long O (boat, home)', 'words with long o sound', setDialogState),
+            _buildPatternButton('Long U (cube, tune)', 'words with long u sound', setDialogState),
+          ],
+        ),
+        const SizedBox(height: 16),
+        
+        // Simple Topics  
+        const Text('Simple Topics:', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            _buildPatternButton('Animals', 'farm animals', setDialogState),
+            _buildPatternButton('Colors', 'basic color names', setDialogState),
+            _buildPatternButton('3-Letter Words', '3 letter CVC words', setDialogState),
+            _buildPatternButton('4-Letter Words', '4 letter words', setDialogState),
+          ],
+        ),
+        const SizedBox(height: 16),
+        
+        // Show selected pattern
+        if (_selectedPrompt.isNotEmpty) ...[
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: AppColors.success.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: AppColors.success.withOpacity(0.3)),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.check_circle, color: AppColors.success, size: 20),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Selected: $_selectedPrompt',
+                    style: TextStyle(color: AppColors.success, fontWeight: FontWeight.w500),
+                  ),
+                ),
+                TextButton(
+                  onPressed: () {
+                    setDialogState(() {
+                      _selectedPrompt = '';
+                    });
+                  },
+                  child: const Text('Clear'),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
+      ],
+    );
+  }
+
+  // Build individual pattern selection button
+  Widget _buildPatternButton(String displayText, String promptText, StateSetter setDialogState) {
+    final isSelected = _selectedPrompt == promptText;
+    
+    return ElevatedButton(
+      onPressed: () {
+        setDialogState(() {
+          _selectedPrompt = promptText;
+        });
+      },
+      style: ElevatedButton.styleFrom(
+        backgroundColor: isSelected ? AppColors.primary : Colors.grey[100],
+        foregroundColor: isSelected ? Colors.white : Colors.black87,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+        ),
+      ),
+      child: Text(
+        displayText,
+        style: const TextStyle(fontSize: 13),
+      ),
+    );
   }
 
 }

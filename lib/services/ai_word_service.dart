@@ -3,6 +3,8 @@ import 'dart:convert';
 import '../config/app_config.dart';
 import 'demo_ai_service.dart';
 import 'content_filter_service.dart';
+import 'datamuse_service.dart';
+import 'word_generation_logger.dart';
 
 class AIWordService {
   // Using Google Gemini API - free tier with 15 requests/minute
@@ -34,31 +36,293 @@ class AIWordService {
   static Future<List<List<String>>> generateWordGrid({
     required String prompt,
     String difficulty = 'elementary',
+    String? gameId,
+    String? gameName,
   }) async {
+    final startTime = DateTime.now();
+    List<String> servicesUsed = [];
+    Map<String, int> wordCounts = {};
+    List<String> allGeneratedWords = [];
+    String finalServiceUsed = '';
+    bool success = false;
+    String? errorMessage;
+    
     try {
       // Check for inappropriate prompt
       if (_isInappropriatePrompt(prompt)) {
-        // Return safe default grid instead of processing inappropriate content
+        finalServiceUsed = 'CONTENT_FILTERED';
+        // Log the filtering for analytics
+        await WordGenerationLogger.logWordGeneration(
+          prompt: prompt,
+          difficulty: difficulty,
+          services: ['content_filter'],
+          wordCounts: {'fallback': 36},
+          sampleWords: _getDefaultSafeGrid().expand((row) => row).toList(),
+          finalService: finalServiceUsed,
+          success: true,
+          gameId: gameId,
+          gameName: gameName,
+          additionalData: {'reason': 'inappropriate_content'},
+        );
+        
         return _getDefaultSafeGrid();
       }
       
-      // Use demo service for now (can be switched to real AI later)
-      if (_useDemoMode) {
-        return await DemoAIService.generateWordGrid(
+      // Try Datamuse first for pattern-based prompts
+      List<String> datamuseWords = [];
+      bool usedDatamuse = false;
+      
+      if (DatamuseService.canHandlePrompt(prompt)) {
+        print('═══════════════════════════════════════════════════════════════');
+        print('🎯 WORD GENERATION REQUEST');
+        print('📝 Prompt: "$prompt"');
+        print('🔍 Datamuse can handle this prompt - trying Datamuse first');
+        
+        // Log pattern detection
+        await WordGenerationLogger.logPatternDetection(
           prompt: prompt,
-          difficulty: difficulty,
+          detectedPattern: DatamuseService.extractPattern(prompt),
+          datamuseCanHandle: true,
+          gameId: gameId,
+        );
+        
+        final datamuseStartTime = DateTime.now();
+        datamuseWords = await DatamuseService.generateWordsFromPrompt(prompt);
+        usedDatamuse = datamuseWords.isNotEmpty;
+        
+        // Log Datamuse performance
+        await WordGenerationLogger.logServicePerformance(
+          service: 'datamuse',
+          prompt: prompt,
+          responseTime: DateTime.now().difference(datamuseStartTime),
+          wordsGenerated: datamuseWords.length,
+          success: datamuseWords.isNotEmpty,
+          gameId: gameId,
+        );
+        
+        if (usedDatamuse) {
+          servicesUsed.add('datamuse');
+          wordCounts['datamuse'] = datamuseWords.length;
+          allGeneratedWords.addAll(datamuseWords);
+        }
+        
+        if (datamuseWords.length >= 36) {
+          print('✅ SUCCESS: Datamuse provided ${datamuseWords.length} words');
+          print('📊 Using: DATAMUSE ONLY');
+          print('🎲 Sample words: ${datamuseWords.take(10).join(", ")}...');
+          print('═══════════════════════════════════════════════════════════════');
+          
+          finalServiceUsed = 'DATAMUSE ONLY';
+          success = true;
+          final finalWords = datamuseWords.take(36).toList();
+          
+          // Log final result
+          await WordGenerationLogger.logWordGeneration(
+            prompt: prompt,
+            difficulty: difficulty,
+            services: servicesUsed,
+            wordCounts: wordCounts,
+            sampleWords: finalWords,
+            finalService: finalServiceUsed,
+            success: success,
+            gameId: gameId,
+            gameName: gameName,
+          );
+          
+          return DatamuseService.organizeIntoGrid(finalWords);
+        } else if (datamuseWords.isNotEmpty) {
+          print('⚠️  Datamuse provided only ${datamuseWords.length} words');
+          print('🔄 Will combine with AI service to get remaining words');
+        } else {
+          print('❌ Datamuse returned no words for this prompt');
+        }
+      } else {
+        print('═══════════════════════════════════════════════════════════════');
+        print('🎯 WORD GENERATION REQUEST');
+        print('📝 Prompt: "$prompt"');
+        print('🤖 This prompt is better suited for AI generation');
+        
+        // Log pattern detection
+        await WordGenerationLogger.logPatternDetection(
+          prompt: prompt,
+          datamuseCanHandle: false,
+          gameId: gameId,
         );
       }
       
-      // Real AI service (when API key is available)
-      final aiPrompt = _buildGeminiPrompt(prompt, difficulty);
-      final response = await _callGemini(aiPrompt);
-      final grid = _parseWordGrid(response);
+      // Generate AI words (Demo or Gemini)
+      List<String> aiWords = [];
+      final aiStartTime = DateTime.now();
+      
+      if (_useDemoMode) {
+        print('🤖 AI Service: Using DEMO mode');
+        final demoGrid = await DemoAIService.generateWordGrid(
+          prompt: prompt,
+          difficulty: difficulty,
+        );
+        aiWords = demoGrid.expand((row) => row).toList();
+        print('✅ SUCCESS: Demo AI provided ${aiWords.length} words');
+        print('🎲 Sample words: ${aiWords.take(10).join(", ")}...');
+        
+        // Log Demo AI performance
+        await WordGenerationLogger.logServicePerformance(
+          service: 'demo_ai',
+          prompt: prompt,
+          responseTime: DateTime.now().difference(aiStartTime),
+          wordsGenerated: aiWords.length,
+          success: aiWords.isNotEmpty,
+          gameId: gameId,
+        );
+        
+        servicesUsed.add('demo_ai');
+        wordCounts['demo_ai'] = aiWords.length;
+        
+      } else {
+        print('🤖 AI Service: Using REAL GEMINI mode');
+        
+        // Real AI service (when API key is available)
+        final aiPrompt = _buildGeminiPrompt(prompt, difficulty);
+        print('📤 Gemini prompt: $aiPrompt');
+        
+        try {
+          final response = await _callGemini(aiPrompt);
+          print('📥 Gemini response: $response');
+          
+          // Check if we need to validate ending patterns
+          String? requiredEnding;
+          final lowerPrompt = prompt.toLowerCase();
+          final endingPattern = RegExp(r'(?:ending|end|ends|that end) (?:in|with) ["\x27]?(-?\w+)["\x27]?').firstMatch(lowerPrompt);
+          if (endingPattern != null) {
+            requiredEnding = endingPattern.group(1)?.replaceAll('-', '');
+            print('🎯 Detected ending pattern: "$requiredEnding" from prompt: "$prompt"');
+          } else {
+            print('🎯 No ending pattern detected in prompt: "$prompt"');
+          }
+          
+          // Check for word length requirements
+          int? requiredLength;
+          final lengthPattern = RegExp(r'(\d+)\s*letter\s*words?').firstMatch(lowerPrompt);
+          if (lengthPattern != null) {
+            requiredLength = int.tryParse(lengthPattern.group(1) ?? '');
+            print('🎯 Detected word length requirement: $requiredLength letters');
+          }
+          
+          final grid = _parseWordGrid(response, requiredEnding: requiredEnding, requiredLength: requiredLength, originalPrompt: prompt);
+          aiWords = grid.expand((row) => row).toList();
+          print('✅ SUCCESS: Gemini provided ${aiWords.length} words after validation');
+          print('🎲 Sample words: ${aiWords.take(10).join(", ")}...');
+          
+          // Log Gemini performance
+          await WordGenerationLogger.logServicePerformance(
+            service: 'gemini',
+            prompt: prompt,
+            responseTime: DateTime.now().difference(aiStartTime),
+            wordsGenerated: aiWords.length,
+            success: aiWords.isNotEmpty,
+            gameId: gameId,
+          );
+          
+          servicesUsed.add('gemini');
+          wordCounts['gemini'] = aiWords.length;
+          
+        } catch (e) {
+          // Log Gemini failure
+          await WordGenerationLogger.logServicePerformance(
+            service: 'gemini',
+            prompt: prompt,
+            responseTime: DateTime.now().difference(aiStartTime),
+            wordsGenerated: 0,
+            success: false,
+            error: e.toString(),
+            gameId: gameId,
+          );
+          
+          print('❌ Gemini API error: $e');
+          aiWords = [];
+        }
+      }
+      
+      if (aiWords.isNotEmpty) {
+        allGeneratedWords.addAll(aiWords.where((word) => !allGeneratedWords.contains(word)));
+      }
+      
+      // Combine Datamuse and AI words if both were used
+      List<String> finalWords = [];
+      if (datamuseWords.isNotEmpty && aiWords.isNotEmpty) {
+        print('🔄 COMBINING RESULTS:');
+        print('   📊 Datamuse words: ${datamuseWords.length}');
+        print('   📊 AI words: ${aiWords.length}');
+        
+        finalWords.addAll(datamuseWords);
+        // Add AI words to fill the remaining slots
+        for (final word in aiWords) {
+          if (!finalWords.contains(word) && finalWords.length < 36) {
+            finalWords.add(word);
+          }
+        }
+        
+        finalServiceUsed = 'DATAMUSE + ${_useDemoMode ? "DEMO AI" : "GEMINI AI"}';
+        print('📊 Using: $finalServiceUsed');
+        print('📊 Final word count: ${finalWords.length}');
+        print('🎲 Final sample: ${finalWords.take(10).join(", ")}...');
+        
+      } else if (datamuseWords.isNotEmpty) {
+        finalWords = datamuseWords;
+        finalServiceUsed = 'DATAMUSE ONLY';
+        print('📊 Using: $finalServiceUsed');
+        
+      } else if (aiWords.isNotEmpty) {
+        finalWords = aiWords;
+        finalServiceUsed = '${_useDemoMode ? "DEMO AI" : "GEMINI AI"} ONLY';
+        print('📊 Using: $finalServiceUsed');
+        
+      } else {
+        print('❌ ERROR: No words generated from any service');
+        finalServiceUsed = 'FALLBACK GRID';
+        print('📊 Using: $finalServiceUsed');
+        finalWords = _getFallbackGrid().expand((row) => row).toList();
+        servicesUsed.add('fallback');
+        wordCounts['fallback'] = 36;
+      }
+      
+      success = finalWords.isNotEmpty;
+      print('═══════════════════════════════════════════════════════════════');
+      
+      // Convert to grid format
+      final gridWords = finalWords.take(36).toList();
+      while (gridWords.length < 36) {
+        gridWords.add('word${gridWords.length + 1}');
+      }
+      
+      // Organize into 6x6 grid
+      final grid = <List<String>>[];
+      for (int row = 0; row < 6; row++) {
+        final startIndex = row * 6;
+        grid.add(gridWords.sublist(startIndex, startIndex + 6));
+      }
       
       // Filter each row for inappropriate words
       final safeGrid = <List<String>>[];
+      List<String> filteredWords = [];
       for (final row in grid) {
         final safeRow = _filterInappropriateWords(row);
+        final originalLength = row.length;
+        final filteredLength = safeRow.length;
+        
+        if (filteredLength < originalLength) {
+          final removed = row.where((word) => !safeRow.contains(word)).toList();
+          filteredWords.addAll(removed);
+          
+          // Log word filtering
+          await WordGenerationLogger.logWordValidation(
+            prompt: prompt,
+            invalidWords: removed,
+            reason: 'inappropriate_content',
+            service: finalServiceUsed,
+            gameId: gameId,
+          );
+        }
+        
         // Ensure we have 6 words per row, pad with safe defaults if needed
         if (safeRow.length < 6) {
           final replacements = ContentFilterService.getSafeReplacements(6 - safeRow.length);
@@ -67,9 +331,52 @@ class AIWordService {
         safeGrid.add(safeRow.take(6).toList());
       }
       
+      // Log final result to Firebase
+      final finalSampleWords = safeGrid.expand((row) => row).toList();
+      await WordGenerationLogger.logWordGeneration(
+        prompt: prompt,
+        difficulty: difficulty,
+        services: servicesUsed,
+        wordCounts: wordCounts,
+        sampleWords: finalSampleWords,
+        finalService: finalServiceUsed,
+        success: success,
+        gameId: gameId,
+        gameName: gameName,
+        additionalData: {
+          'totalGenerationTime': DateTime.now().difference(startTime).inMilliseconds,
+          'filteredWords': filteredWords.length,
+          'combinedServices': servicesUsed.length > 1,
+        },
+      );
+      
       return safeGrid;
       
     } catch (e) {
+      print('═══════════════════════════════════════════════════════════════');
+      print('❌ WORD GENERATION ERROR');
+      print('📝 Prompt: "$prompt"');
+      print('🔴 Error: $e');
+      print('📊 Using: FALLBACK GRID (default words)');
+      print('═══════════════════════════════════════════════════════════════');
+      
+      // Log the error to Firebase
+      await WordGenerationLogger.logWordGeneration(
+        prompt: prompt,
+        difficulty: difficulty,
+        services: servicesUsed.isEmpty ? ['error'] : servicesUsed,
+        wordCounts: wordCounts.isEmpty ? {'error': 0} : wordCounts,
+        sampleWords: _getFallbackGrid().expand((row) => row).toList(),
+        finalService: 'FALLBACK GRID (ERROR)',
+        success: false,
+        error: e.toString(),
+        gameId: gameId,
+        gameName: gameName,
+        additionalData: {
+          'totalGenerationTime': DateTime.now().difference(startTime).inMilliseconds,
+          'errorType': 'generation_failure',
+        },
+      );
       
       // Fallback to default words if AI fails
       return _getFallbackGrid();
@@ -125,17 +432,27 @@ class AIWordService {
     final lowerPrompt = prompt.toLowerCase();
     String patternInstructions = '';
     
+    // Check for word length requirements
+    final lengthPattern = RegExp(r'(\d+)\s*letter\s*words?').firstMatch(lowerPrompt);
+    if (lengthPattern != null) {
+      final length = lengthPattern.group(1);
+      patternInstructions += '- MUST be exactly $length letters long\n';
+      patternInstructions += '- CRITICAL: Every single word must have exactly $length letters\n';
+    }
+    
     // Check for CVC pattern requests
     if (lowerPrompt.contains('cvc')) {
       patternInstructions += '- MUST be three-letter CVC (consonant-vowel-consonant) words\n';
     }
     
-    // Check for ending pattern (e.g., "ending in -it", "ending with at")
-    final endingPattern = RegExp(r'ending (?:in|with) ["\x27]?(-?\w+)["\x27]?').firstMatch(lowerPrompt);
+    // Check for ending pattern (e.g., "ending in -it", "ending with at", "end in it")
+    final endingPattern = RegExp(r'(?:ending|end|ends|that end) (?:in|with) ["\x27]?(-?\w+)["\x27]?').firstMatch(lowerPrompt);
     if (endingPattern != null) {
       final ending = endingPattern.group(1)?.replaceAll('-', '');
-      patternInstructions += '- ALL words MUST end with "$ending"\n';
-      patternInstructions += '- CRITICAL: Every single word must have "$ending" as its ending\n';
+      patternInstructions += '- ALL words MUST end with the letters "$ending"\n';
+      patternInstructions += '- CRITICAL: Every single word must have "$ending" as its final letters\n';
+      patternInstructions += '- DO NOT include words ending with any other letters\n';
+      patternInstructions += '- Examples of correct words ending in "$ending": ${_getExampleWords(ending ?? '')}\n';
     }
     
     // Check for rhyming pattern
@@ -147,21 +464,366 @@ class AIWordService {
       }
     }
     
+    // Check if we have an ending pattern and need to be extra explicit
+    String endingEmphasis = '';
+    if (patternInstructions.contains('MUST end with')) {
+      final endingMatch = RegExp(r'MUST end with the letters "(\w+)"').firstMatch(patternInstructions);
+      if (endingMatch != null) {
+        final ending = endingMatch.group(1);
+        endingEmphasis = '''
+
+CRITICAL: ALL 36 words MUST end with "$ending". 
+Examples of CORRECT words: ${_getExampleWords(ending ?? '')}
+DO NOT include words that end with any other letters.
+Every single word in your response MUST end with "$ending".
+''';
+      }
+    }
+    
+    // Enhance basic prompts to be more specific
+    String enhancedPrompt = _enhanceTeacherPrompt(prompt);
+    String topicGuidance = _getTopicSpecificGuidance(enhancedPrompt);
+    
     return '''
-Create a reading game word grid for $difficulty students.
-Mrs. Elson's topic: "$prompt"
+EDUCATIONAL WORD GENERATION FOR CHILDREN WITH READING DIFFICULTIES
 
-Generate exactly 36 educational words that are:
-- Appropriate for $difficulty reading level
-- Related to: "$prompt"
-$patternInstructions- Simple, clear, and safe for children
-- Varied but thematically connected
+Task: Generate exactly 36 simple, safe, educational words for "$prompt"
+Student Level: $difficulty
+Reading Focus: Children learning to pronounce words
 
-${patternInstructions.isNotEmpty ? 'CRITICAL REQUIREMENT: You MUST follow the pattern constraints above. Double-check that EVERY word meets the specified pattern.\n' : ''}
-IMPORTANT: Respond with exactly 36 words separated by commas only:
+$topicGuidance
+
+MANDATORY REQUIREMENTS:
+1. Every word MUST be 100% safe and appropriate for children ages 5-12
+2. NO weapons, violence, or inappropriate content (NO: gun, kill, fight, etc.)
+3. Only simple, common words children know and use
+4. Perfect spelling - no errors allowed
+$patternInstructions
+5. Each word must be unique (no duplicates)
+
+${patternInstructions.isNotEmpty ? '''
+PHONICS PATTERN REQUIREMENT:
+${patternInstructions}
+CRITICAL: Every single word MUST follow this pattern perfectly.
+Check each word before including it.
+''' : ''}
+
+$endingEmphasis
+
+EXAMPLES OF GOOD EDUCATIONAL WORDS FOR CHILDREN:
+For -un pattern: run, sun, fun, bun, spun (NOT: gun, ton, won)
+For animals: cat, dog, cow, pig, duck (NOT: weapons, complex words)
+For colors: red, blue, pink, green (NOT: scarlet, turquoise)
+For Long A sound: cake, name, play, day, make, take, game, same, late, gate
+BANNED COMPLEX WORDS: apprehensive, articulate, austere, abrasive, acquiesce, amenable, aggregate, ambivalence, accentuate
+USE ONLY SIMPLE WORDS THAT 5-7 YEAR OLDS KNOW AND USE DAILY.
+
+RESPOND WITH EXACTLY 36 COMMA-SEPARATED WORDS:
 word1, word2, word3, word4, word5, word6, word7, word8, word9, word10, word11, word12, word13, word14, word15, word16, word17, word18, word19, word20, word21, word22, word23, word24, word25, word26, word27, word28, word29, word30, word31, word32, word33, word34, word35, word36
 
-No extra text, just the 36 comma-separated words.
+ONLY the words - no extra text.
+''';
+  }
+  
+  /// Enhance basic teacher prompts to be more specific and get better results
+  /// This app is for children with reading difficulties learning pronunciation/phonics
+  static String _enhanceTeacherPrompt(String prompt) {
+    final lowerPrompt = prompt.toLowerCase().trim();
+    
+    // PRIORITY 1: Check for phonics/pronunciation patterns first
+    // This is the primary use case for children with reading difficulties
+    
+    // Short vowel sounds
+    if (lowerPrompt.contains('short a')) {
+      return 'words with short a sound like cat, bat, hat';
+    }
+    if (lowerPrompt.contains('short e')) {
+      return 'words with short e sound like bed, red, net';
+    }
+    if (lowerPrompt.contains('short i')) {
+      return 'words with short i sound like sit, hit, big';
+    }
+    if (lowerPrompt.contains('short o')) {
+      return 'words with short o sound like hot, pot, dog';
+    }
+    if (lowerPrompt.contains('short u')) {
+      return 'words with short u sound like cut, run, fun';
+    }
+    
+    // Long vowel sounds - ONLY SIMPLE ELEMENTARY WORDS
+    if (lowerPrompt.contains('long a')) {
+      return 'SIMPLE words with long a sound: cake, name, play, day, way, say, make, take, lake, bake, game, same, late, gate, date, came, gave, save, wave, made - NO complex words like "apprehensive" or "articulate"';
+    }
+    if (lowerPrompt.contains('long e')) {
+      return 'SIMPLE words with long e sound: tree, see, bee, free, green, three, sleep, keep, deep, seed, need, feed, meet, feet, week, sweet, beach, read, teach, eat - NO complex words';
+    }
+    if (lowerPrompt.contains('long i')) {
+      return 'SIMPLE words with long i sound: bike, like, time, nine, fine, line, mine, five, hive, dive, ride, side, hide, wide, kite, white, nice, mice, rice, ice - NO complex words';
+    }
+    if (lowerPrompt.contains('long o')) {
+      return 'SIMPLE words with long o sound: boat, goat, coat, road, toad, soap, hope, rope, note, vote, home, bone, cone, stone, phone, nose, rose, those, close, chose - NO complex words';
+    }
+    if (lowerPrompt.contains('long u')) {
+      return 'SIMPLE words with long u sound: cute, tube, cube, huge, tune, June, dune, mule, rule, blue, glue, true, due, sue, new, few, grew, threw, knew, chew - NO complex words';
+    }
+    
+    // Common phonics patterns
+    if (lowerPrompt.contains('cvc')) {
+      return 'simple consonant-vowel-consonant words like cat, dog, sun';
+    }
+    if (lowerPrompt.contains('cvce') || lowerPrompt.contains('magic e')) {
+      return 'consonant-vowel-consonant-e words like cake, bike, home';
+    }
+    
+    // Word families (very common for reading instruction)
+    if (lowerPrompt.contains('-at') || lowerPrompt.contains('at family')) {
+      return 'words ending in -at like cat, bat, hat, sat';
+    }
+    if (lowerPrompt.contains('-an') || lowerPrompt.contains('an family')) {
+      return 'words ending in -an like can, man, ran, pan';
+    }
+    if (lowerPrompt.contains('-it') || lowerPrompt.contains('it family')) {
+      return 'words ending in -it like sit, hit, bit, fit';
+    }
+    if (lowerPrompt.contains('-in') || lowerPrompt.contains('in family')) {
+      return 'words ending in -in like pin, win, tin, bin';
+    }
+    if (lowerPrompt.contains('-ot') || lowerPrompt.contains('ot family')) {
+      return 'words ending in -ot like pot, hot, dot, got';
+    }
+    if (lowerPrompt.contains('-un') || lowerPrompt.contains('un family')) {
+      return 'words ending in -un like run, sun, fun, bun';
+    }
+    
+    // Blends and digraphs
+    if (lowerPrompt.contains('bl blend')) {
+      return 'words starting with bl like blue, black, block';
+    }
+    if (lowerPrompt.contains('ch sound')) {
+      return 'words with ch sound like chair, chip, much';
+    }
+    if (lowerPrompt.contains('sh sound')) {
+      return 'words with sh sound like ship, shop, fish';
+    }
+    if (lowerPrompt.contains('th sound')) {
+      return 'words with th sound like the, this, bath';
+    }
+    
+    // Handle very basic prompts that teachers might use
+    if (lowerPrompt == 'animals' || lowerPrompt == 'animal') {
+      return 'farm animals and pets';
+    }
+    if (lowerPrompt == 'farm') {
+      return 'farm animals';
+    }
+    if (lowerPrompt == 'food') {
+      return 'common foods children eat';
+    }
+    if (lowerPrompt == 'colors' || lowerPrompt == 'color') {
+      return 'basic color names';
+    }
+    if (lowerPrompt == 'shapes' || lowerPrompt == 'shape') {
+      return 'basic geometric shapes';
+    }
+    if (lowerPrompt == 'transportation' || lowerPrompt == 'transport') {
+      return 'vehicles and transportation';
+    }
+    if (lowerPrompt == 'body') {
+      return 'body parts';
+    }
+    if (lowerPrompt == 'weather') {
+      return 'weather conditions';
+    }
+    if (lowerPrompt == 'clothes' || lowerPrompt == 'clothing') {
+      return 'clothing items children wear';
+    }
+    if (lowerPrompt == 'toys' || lowerPrompt == 'toy') {
+      return 'children toys and games';
+    }
+    if (lowerPrompt == 'school') {
+      return 'school supplies and classroom items';
+    }
+    if (lowerPrompt == 'home' || lowerPrompt == 'house') {
+      return 'things found in a house';
+    }
+    if (lowerPrompt == 'family') {
+      return 'family members';
+    }
+    if (lowerPrompt == 'jobs' || lowerPrompt == 'job' || lowerPrompt == 'work') {
+      return 'common jobs and occupations';
+    }
+    if (lowerPrompt == 'sports' || lowerPrompt == 'sport') {
+      return 'sports and games children play';
+    }
+    if (lowerPrompt == 'music') {
+      return 'musical instruments';
+    }
+    if (lowerPrompt == 'nature') {
+      return 'things found in nature';
+    }
+    if (lowerPrompt == 'kitchen') {
+      return 'kitchen items and cooking tools';
+    }
+    if (lowerPrompt == 'bathroom') {
+      return 'bathroom items';
+    }
+    if (lowerPrompt == 'bedroom') {
+      return 'bedroom furniture and items';
+    }
+    if (lowerPrompt == 'playground') {
+      return 'playground equipment and activities';
+    }
+    if (lowerPrompt == 'garden') {
+      return 'garden plants and tools';
+    }
+    if (lowerPrompt == 'ocean' || lowerPrompt == 'sea') {
+      return 'ocean animals and sea creatures';
+    }
+    if (lowerPrompt == 'space') {
+      return 'space objects and planets';
+    }
+    if (lowerPrompt == 'forest') {
+      return 'forest animals and trees';
+    }
+    if (lowerPrompt == 'holidays' || lowerPrompt == 'holiday') {
+      return 'holiday celebrations and traditions';
+    }
+    if (lowerPrompt == 'seasons' || lowerPrompt == 'season') {
+      return 'four seasons and seasonal activities';
+    }
+    
+    // Return original if no enhancement needed
+    return prompt;
+  }
+  
+  /// Get topic-specific guidance for better word generation
+  /// Prioritizes phonics/pronunciation patterns for children with reading difficulties
+  static String _getTopicSpecificGuidance(String prompt) {
+    final lowerPrompt = prompt.toLowerCase();
+    
+    // PRIORITY 1: Phonics and pronunciation patterns
+    if (lowerPrompt.contains('short') && lowerPrompt.contains('sound')) {
+      return '''
+CRITICAL: Generate words with the specified SHORT VOWEL SOUND for phonics instruction.
+Focus on simple, decodable words that children with reading difficulties can practice.
+Examples should be clear pronunciation patterns with the target sound.
+Avoid complex words - keep it simple for struggling readers.
+''';
+    }
+    
+    if (lowerPrompt.contains('long') && lowerPrompt.contains('sound')) {
+      return '''
+CRITICAL: Generate words with the specified LONG VOWEL SOUND for phonics instruction.
+Focus on simple, decodable words that children with reading difficulties can practice.
+Examples should be clear pronunciation patterns with the target sound.
+Include various spelling patterns for the same sound (like 'ay', 'ai', 'a_e' for long a).
+''';
+    }
+    
+    if (lowerPrompt.contains('cvc') || (lowerPrompt.contains('letter') && !lowerPrompt.contains('long') && !lowerPrompt.contains('short'))) {
+      return '''
+CRITICAL: Generate simple consonant-vowel-consonant words for beginning readers.
+Focus on decodable words that follow basic phonics patterns.
+Examples: cat, dog, sun, big, hop, run
+Keep words simple and easy to sound out for children with reading difficulties.
+''';
+    }
+    
+    if (lowerPrompt.contains('ending') || lowerPrompt.contains('family') || lowerPrompt.contains('-')) {
+      return '''
+CRITICAL: Generate words from the same WORD FAMILY for phonics practice.
+All words must have the same ending pattern for pronunciation practice.
+Examples: cat, bat, hat, sat (all -at family)
+This helps children with reading difficulties learn consistent sound patterns.
+''';
+    }
+    
+    if (lowerPrompt.contains('blend') || lowerPrompt.contains('digraph')) {
+      return '''
+CRITICAL: Generate words with the specified CONSONANT BLEND or DIGRAPH.
+Focus on words that clearly demonstrate the target sound combination.
+Keep words at appropriate level for children with reading difficulties.
+Examples should be decodable and follow phonics rules.
+''';
+    }
+    
+    // Animal-related prompts (secondary priority)
+    if (lowerPrompt.contains('animal')) {
+      return '''
+CRITICAL: Generate only ACTUAL ANIMAL NAMES, not farm items or related words.
+Examples: cow, pig, horse, chicken, duck, sheep, goat, rabbit, cat, dog
+DO NOT include: milk, farmer, barn, feed, water, straw, field, etc.
+''';
+    }
+    
+    // Farm-related prompts
+    if (lowerPrompt.contains('farm')) {
+      return '''
+CRITICAL: Generate only things you would actually FIND ON A FARM.
+Examples: cow, pig, chicken, barn, tractor, corn, wheat, fence, farmer, horse
+Focus on specific farm animals, crops, buildings, and equipment.
+''';
+    }
+    
+    // Color prompts
+    if (lowerPrompt.contains('color')) {
+      return '''
+CRITICAL: Generate only ACTUAL COLOR NAMES.
+Examples: red, blue, green, yellow, orange, purple, pink, brown, black, white
+DO NOT include: crayon, paint, rainbow, art, etc.
+''';
+    }
+    
+    // Food prompts
+    if (lowerPrompt.contains('food')) {
+      return '''
+CRITICAL: Generate only ACTUAL FOOD ITEMS you can eat.
+Examples: apple, bread, milk, cheese, chicken, rice, pasta, banana
+DO NOT include: plate, fork, kitchen, cook, etc.
+''';
+    }
+    
+    // Transportation prompts
+    if (lowerPrompt.contains('transport') || lowerPrompt.contains('vehicle')) {
+      return '''
+CRITICAL: Generate only ACTUAL VEHICLES and transportation methods.
+Examples: car, truck, bus, train, plane, bike, boat, ship
+DO NOT include: road, driver, gas, wheel, etc.
+''';
+    }
+    
+    // Body parts
+    if (lowerPrompt.contains('body')) {
+      return '''
+CRITICAL: Generate only ACTUAL BODY PART NAMES.
+Examples: head, hand, foot, arm, leg, eye, nose, mouth
+DO NOT include: doctor, health, medicine, etc.
+''';
+    }
+    
+    // Numbers
+    if (lowerPrompt.contains('number')) {
+      return '''
+CRITICAL: Generate only NUMBER WORDS (spelled out).
+Examples: one, two, three, four, five, six, seven, eight, nine, ten
+DO NOT include: count, math, add, plus, etc.
+''';
+    }
+    
+    // Weather
+    if (lowerPrompt.contains('weather')) {
+      return '''
+CRITICAL: Generate only ACTUAL WEATHER CONDITIONS and phenomena.
+Examples: sunny, rain, snow, wind, cloud, storm, hot, cold
+DO NOT include: forecast, umbrella, coat, etc.
+''';
+    }
+    
+    // Default guidance for other topics
+    return '''
+CRITICAL: Generate only words that are DIRECT EXAMPLES of "$prompt".
+Focus on specific items, names, or examples that belong to this category.
+Avoid related items, tools, or associated concepts - only the actual thing itself.
 ''';
   }
   
@@ -176,12 +838,14 @@ No extra text, just the 36 comma-separated words.
       patternInstructions += '- MUST be three-letter CVC (consonant-vowel-consonant) words\n';
     }
     
-    // Check for ending pattern (e.g., "ending in -it", "ending with at")
-    final endingPattern = RegExp(r'ending (?:in|with) ["\x27]?(-?\w+)["\x27]?').firstMatch(lowerPrompt);
+    // Check for ending pattern (e.g., "ending in -it", "ending with at", "end in it")
+    final endingPattern = RegExp(r'(?:ending|end|ends|that end) (?:in|with) ["\x27]?(-?\w+)["\x27]?').firstMatch(lowerPrompt);
     if (endingPattern != null) {
       final ending = endingPattern.group(1)?.replaceAll('-', '');
-      patternInstructions += '- ALL words MUST end with "$ending"\n';
-      patternInstructions += '- CRITICAL: Every single word must have "$ending" as its ending\n';
+      patternInstructions += '- ALL words MUST end with the letters "$ending"\n';
+      patternInstructions += '- CRITICAL: Every single word must have "$ending" as its final letters\n';
+      patternInstructions += '- DO NOT include words ending with any other letters\n';
+      patternInstructions += '- Examples of correct words ending in "$ending": ${_getExampleWords(ending ?? '')}\n';
     }
     
     // Check for rhyming pattern
@@ -270,14 +934,81 @@ No extra text, just the 6 comma-separated words.
   }
   
   /// Parse AI response into a 6x6 grid
-  static List<List<String>> _parseWordGrid(String aiResponse) {
+  static List<List<String>> _parseWordGrid(String aiResponse, {String? requiredEnding, int? requiredLength, String originalPrompt = ''}) {
     // Clean and split the response
-    final words = aiResponse
+    var words = aiResponse
         .replaceAll('\n', ' ')
         .split(',')
         .map((word) => word.trim().toLowerCase())
         .where((word) => word.isNotEmpty)
         .toList();
+    
+    // Remove duplicates early in the process
+    words = words.toSet().toList();
+    print('🤖 After removing duplicates: ${words.length} unique words');
+    
+    // If we have a required word length, filter out words of different lengths
+    if (requiredLength != null) {
+      print('🤖 Filtering words to only include those with $requiredLength letters');
+      final validWords = words.where((word) => word.length == requiredLength).toList();
+      final invalidWords = words.where((word) => word.length != requiredLength).toList();
+      
+      if (invalidWords.isNotEmpty) {
+        print('🤖 Removed words with wrong length: $invalidWords');
+      }
+      
+      words = validWords;
+      
+      // If we don't have enough words of the required length, add fallbacks
+      if (words.length < 36) {
+        print('🤖 Need ${36 - words.length} more $requiredLength-letter words');
+        final fallbackWords = _getFallbackWordsForLength(requiredLength, lowerPrompt: originalPrompt.toLowerCase());
+        for (final word in fallbackWords) {
+          if (!words.contains(word)) {
+            words.add(word);
+            if (words.length >= 36) break;
+          }
+        }
+      }
+    }
+    
+    // If we have a required ending pattern, filter out non-matching words
+    if (requiredEnding != null && requiredEnding.isNotEmpty) {
+      print('🤖 Filtering words to only include those ending with "$requiredEnding"');
+      final validWords = words.where((word) => word.endsWith(requiredEnding)).toList();
+      final invalidWords = words.where((word) => !word.endsWith(requiredEnding)).toList();
+      
+      if (invalidWords.isNotEmpty) {
+        print('🤖 Removed invalid words not ending in "$requiredEnding": $invalidWords');
+      }
+      
+      words = validWords;
+      
+      // If we don't have enough valid words, generate more based on the pattern
+      if (words.length < 36) {
+        final fallbackWords = _getFallbackWordsForEnding(requiredEnding);
+        print('🤖 Need ${36 - words.length} more words, using fallbacks');
+        
+        // Add fallback words that aren't already in the list
+        for (final word in fallbackWords) {
+          if (!words.contains(word)) {
+            words.add(word);
+            if (words.length >= 36) break;
+          }
+        }
+        
+        // If still not enough, repeat some words
+        if (words.length < 36) {
+          print('🤖 Still need ${36 - words.length} words, repeating existing words');
+          final existingWords = List<String>.from(words);
+          int index = 0;
+          while (words.length < 36) {
+            words.add(existingWords[index % existingWords.length]);
+            index++;
+          }
+        }
+      }
+    }
     
     // Ensure we have exactly 36 words
     while (words.length < 36) {
@@ -373,6 +1104,90 @@ No extra text, just the 6 comma-separated words.
       'middle-school',
       'high-school',
     ];
+  }
+  
+  /// Get example words for a given ending pattern
+  static String _getExampleWords(String ending) {
+    switch (ending.toLowerCase()) {
+      case 'at':
+        return 'cat, bat, mat, sat, hat, rat';
+      case 'it':
+        return 'sit, hit, bit, fit, kit, lit';
+      case 'et':
+        return 'pet, get, let, met, net, set';
+      case 'ot':
+        return 'hot, pot, dot, got, lot, not';
+      case 'ut':
+        return 'cut, but, hut, nut, put, gut';
+      case 'an':
+        return 'can, man, ran, pan, fan, tan';
+      case 'en':
+        return 'pen, ten, men, hen, den, when';
+      case 'in':
+        return 'pin, win, tin, bin, fin, skin';
+      case 'un':
+        return 'run, sun, fun, bun, spun, stun';
+      case 'ing':
+        return 'ring, sing, king, wing, bring, spring';
+      default:
+        return '';
+    }
+  }
+  
+  /// Get fallback words for a specific length requirement
+  static List<String> _getFallbackWordsForLength(int length, {String lowerPrompt = ''}) {
+    // Check if looking for short 'a' sound words
+    if (lowerPrompt.contains('short a') || lowerPrompt.contains('short vowel a')) {
+      switch (length) {
+        case 4:
+          return ['hand', 'land', 'sand', 'band', 'back', 'pack', 'rack', 'sack', 'tack', 'glad', 'crab', 'grab', 'trap', 'snap', 'clap', 'flat', 'that', 'chat', 'brat', 'slam', 'swam', 'gram', 'tram', 'plan', 'scan', 'span', 'than', 'clan', 'bran', 'drag', 'flag', 'stag', 'snag', 'camp', 'damp', 'lamp', 'ramp', 'past', 'fast', 'last', 'cast', 'vast', 'mask', 'task', 'bath', 'path', 'math'];
+        case 3:
+          return ['cat', 'bat', 'hat', 'mat', 'rat', 'sat', 'fat', 'pat', 'vat', 'can', 'man', 'pan', 'ran', 'fan', 'tan', 'van', 'bad', 'dad', 'had', 'lad', 'mad', 'sad', 'bag', 'gag', 'lag', 'rag', 'tag', 'wag', 'nap', 'cap', 'gap', 'lap', 'map', 'rap', 'tap', 'zap'];
+        case 5:
+          return ['grand', 'stand', 'brand', 'black', 'crack', 'track', 'stack', 'glass', 'grass', 'class', 'flash', 'crash', 'trash', 'smash', 'plant', 'chant', 'grant', 'ranch', 'batch', 'catch', 'match', 'patch', 'watch', 'happy', 'snack'];
+        default:
+          return [];
+      }
+    }
+    
+    // Generic fallbacks by length
+    switch (length) {
+      case 3:
+        return ['the', 'and', 'for', 'are', 'but', 'not', 'you', 'all', 'can', 'her', 'was', 'one', 'our', 'out', 'day', 'got', 'him', 'his', 'how', 'its', 'let', 'new', 'now', 'old', 'see', 'two', 'way', 'who', 'boy', 'did', 'get', 'has', 'put', 'say', 'she', 'too', 'use'];
+      case 4:
+        return ['have', 'that', 'with', 'this', 'will', 'your', 'from', 'they', 'know', 'want', 'been', 'good', 'much', 'some', 'time', 'very', 'when', 'come', 'here', 'just', 'like', 'long', 'make', 'many', 'over', 'such', 'take', 'than', 'them', 'well', 'only', 'year', 'work', 'back', 'call', 'came', 'feel', 'find', 'give', 'hand', 'high', 'keep', 'last', 'left', 'life', 'live', 'look', 'made', 'most', 'move', 'must', 'name', 'need', 'next', 'open', 'part', 'play', 'said', 'seem', 'show', 'side', 'tell', 'turn', 'used', 'want', 'ways', 'week', 'went', 'were', 'what', 'word', 'work'];
+      case 5:
+        return ['about', 'after', 'again', 'along', 'being', 'below', 'could', 'every', 'first', 'found', 'great', 'house', 'large', 'little', 'never', 'other', 'place', 'right', 'small', 'sound', 'still', 'there', 'these', 'thing', 'think', 'three', 'under', 'until', 'water', 'where', 'which', 'while', 'world', 'would', 'write', 'years'];
+      default:
+        return [];
+    }
+  }
+  
+  /// Get educational fallback words for a specific ending pattern
+  /// These are carefully curated for children with reading difficulties
+  static List<String> _getFallbackWordsForEnding(String ending) {
+    switch (ending.toLowerCase()) {
+      case 'at':
+        return ['cat', 'bat', 'mat', 'sat', 'hat', 'rat', 'pat', 'fat', 'chat', 'flat', 'that', 'brat', 'vat', 'tat', 'gnat', 'scat', 'plat', 'spat'];
+      case 'it':
+        return ['sit', 'hit', 'bit', 'fit', 'kit', 'lit', 'pit', 'wit', 'quit', 'spit', 'knit', 'grit', 'slit', 'flit', 'split', 'twit', 'whit', 'chit', 'unit', 'emit', 'omit', 'admit', 'permit', 'submit', 'commit', 'outfit', 'misfit', 'refit', 'unfit', 'transmit', 'acquit', 'credit', 'edit', 'audit', 'visit', 'limit', 'digit', 'orbit', 'habit', 'rabbit', 'spirit'];
+      case 'et':
+        return ['pet', 'get', 'let', 'met', 'net', 'set', 'bet', 'jet', 'wet', 'yet', 'vet', 'fret', 'duet', 'diet', 'poet'];
+      case 'ot':
+        return ['hot', 'pot', 'dot', 'got', 'lot', 'not', 'cot', 'jot', 'rot', 'tot', 'shot', 'spot', 'plot', 'knot', 'trot', 'slot', 'blot', 'clot'];
+      case 'ut':
+        return ['cut', 'but', 'hut', 'nut', 'put', 'gut', 'jut', 'rut', 'shut', 'strut', 'glut', 'slut'];
+      case 'an':
+        return ['can', 'man', 'ran', 'pan', 'fan', 'tan', 'ban', 'van', 'plan', 'than', 'scan', 'span', 'clan', 'bran', 'gran'];
+      case 'en':
+        return ['pen', 'ten', 'men', 'hen', 'den', 'when', 'then', 'glen', 'wren', 'zen', 'amen'];
+      case 'in':
+        return ['pin', 'win', 'tin', 'bin', 'fin', 'skin', 'spin', 'thin', 'chin', 'twin', 'grin', 'shin'];
+      case 'un':
+        return ['run', 'sun', 'fun', 'bun', 'spun', 'stun', 'shun', 'nun', 'dun', 'pun'];
+      default:
+        return [];
+    }
   }
   
   /// Get suggested prompt templates for Mrs. Elson

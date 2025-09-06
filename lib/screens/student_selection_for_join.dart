@@ -18,6 +18,15 @@ class StudentSelectionForJoin extends StatefulWidget {
 }
 
 class _StudentSelectionForJoinState extends State<StudentSelectionForJoin> {
+  late Future<List<StudentModel>> _studentsFuture;
+  
+  @override
+  void initState() {
+    super.initState();
+    // Initialize the future once to prevent multiple loads
+    _studentsFuture = _getStudents();
+  }
+  
   Future<List<StudentModel>> _getStudents() async {
     try {
       final allStudents = await FirestoreService.getAllActiveStudents();
@@ -192,7 +201,7 @@ class _StudentSelectionForJoinState extends State<StudentSelectionForJoin> {
             Expanded(
               child: Center(
                 child: FutureBuilder<List<StudentModel>>(
-                future: _getStudents(),
+                future: _studentsFuture,
                 builder: (context, snapshot) {
                   if (snapshot.connectionState == ConnectionState.waiting) {
                     return Center(

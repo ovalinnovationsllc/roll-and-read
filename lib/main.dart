@@ -373,10 +373,46 @@ class MultiplayerGameWrapper extends StatelessWidget {
     final gameSession = await SessionService.getGameSession();
     
     if (user != null && gameSession != null) {
-      return {
-        'user': user,
-        'gameSession': gameSession,
-      };
+      // CRITICAL: Check both cached status AND current Firebase status
+      if (gameSession.status == GameStatus.completed || 
+          gameSession.status == GameStatus.cancelled) {
+        print('🚨 CACHED SESSION STATUS IS COMPLETED: ${gameSession.status}');
+        await SessionService.clearGameSession();
+        return null;
+      }
+      
+      // CRITICAL: Validate against current Firebase state to catch stale cached sessions
+      try {
+        print('🔍 VALIDATING CACHED GAME SESSION: ${gameSession.gameId}');
+        final currentGameState = await FirestoreService.getGameSession(gameSession.gameId);
+        
+        if (currentGameState == null) {
+          print('🚨 FIREBASE GAME NO LONGER EXISTS: ${gameSession.gameId}');
+          await SessionService.clearGameSession();
+          return null;
+        }
+        
+        if (currentGameState.status == GameStatus.completed || 
+            currentGameState.status == GameStatus.cancelled) {
+          print('🚨 FIREBASE GAME STATUS IS COMPLETED: ${currentGameState.status}');
+          print('🧹 Cached status was: ${gameSession.status} (stale!)');
+          await SessionService.clearGameSession();
+          return null;
+        }
+        
+        print('✅ FIREBASE VALIDATION PASSED: Game ${gameSession.gameId} is still active');
+        
+        // Use the current Firebase state instead of cached state
+        return {
+          'user': user,
+          'gameSession': currentGameState,
+        };
+      } catch (e) {
+        print('❌ ERROR VALIDATING GAME SESSION: $e');
+        // If we can't validate, clear the session to be safe
+        await SessionService.clearGameSession();
+        return null;
+      }
     }
     
     return null;
