@@ -44,6 +44,13 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 
+# iOS build artifacts
+/ios/build/
+/ios/Flutter/Flutter.framework
+/ios/Flutter/Flutter.podspec
+/ios/ServiceDefinitions.json
+/ios/Runner.xcworkspace/xcshareddata/
+
 # Firebase configuration files - SENSITIVE
 # These contain API keys and should NEVER be committed to source control
 android/app/google-services.json
