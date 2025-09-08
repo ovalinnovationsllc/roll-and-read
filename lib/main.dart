@@ -380,6 +380,10 @@ class MultiplayerGameWrapper extends StatelessWidget {
         await SessionService.clearGameSession();
         return null;
       }
+      // Don't clear pendingTeacherReview - teachers need to access it!
+      if (gameSession.status == GameStatus.pendingTeacherReview) {
+        print('📝 Game pending teacher review - preserving session');
+      }
       
       // CRITICAL: Validate against current Firebase state to catch stale cached sessions
       try {
@@ -398,6 +402,10 @@ class MultiplayerGameWrapper extends StatelessWidget {
           print('🧹 Cached status was: ${gameSession.status} (stale!)');
           await SessionService.clearGameSession();
           return null;
+        }
+        // Don't clear pendingTeacherReview - teachers need to access it!
+        if (currentGameState.status == GameStatus.pendingTeacherReview) {
+          print('📝 Game pending teacher review from Firebase - preserving session');
         }
         
         print('✅ FIREBASE VALIDATION PASSED: Game ${gameSession.gameId} is still active');

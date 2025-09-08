@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../config/app_colors.dart';
 import '../models/game_session_model.dart';
 import '../models/user_model.dart';
@@ -29,6 +30,7 @@ class _TeacherPronunciationMonitorState extends State<TeacherPronunciationMonito
   @override
   void initState() {
     super.initState();
+    print('🎯 TEACHER MONITOR: initState called for game ${widget.gameSession.gameId}');
     _currentGameSession = widget.gameSession;
     _listenToGameChanges();
   }
@@ -61,8 +63,8 @@ class _TeacherPronunciationMonitorState extends State<TeacherPronunciationMonito
 
   Future<void> _approvePronunciation(String cellKey) async {
     try {
-      // Get player IDs from current game session
-      final playerIds = _currentGameSession?.players.map((p) => p.userId).toList() ?? [];
+      // CRITICAL: Use playerIds field instead of extracting from players to maintain turn order
+      final playerIds = _currentGameSession?.playerIds ?? widget.gameSession.playerIds;
       
       await GameStateService.approvePronunciation(
         gameId: widget.gameSession.gameId,
@@ -80,8 +82,8 @@ class _TeacherPronunciationMonitorState extends State<TeacherPronunciationMonito
 
   Future<void> _rejectPronunciation(String cellKey) async {
     try {
-      // Get player IDs from current game session
-      final playerIds = _currentGameSession?.players.map((p) => p.userId).toList() ?? [];
+      // CRITICAL: Use playerIds field instead of extracting from players to maintain turn order
+      final playerIds = _currentGameSession?.playerIds ?? widget.gameSession.playerIds;
       
       await GameStateService.rejectPronunciation(
         gameId: widget.gameSession.gameId,
@@ -119,7 +121,7 @@ class _TeacherPronunciationMonitorState extends State<TeacherPronunciationMonito
 
     if (confirmed == true) {
       try {
-        await GameSessionService.endGameSession(gameId: widget.gameSession.gameId);
+        await GameSessionService.endGameSessionOnly(gameId: widget.gameSession.gameId);
         if (mounted) {
           Navigator.of(context).pushReplacementNamed('/admin-dashboard');
         }
@@ -134,8 +136,17 @@ class _TeacherPronunciationMonitorState extends State<TeacherPronunciationMonito
   }
 
   Future<void> _completeGame() async {
-    final winnerId = _currentGameState?.checkForWinner();
+    print('🚨🚨🚨 _completeGame() CALLED BY TEACHER 🚨🚨🚨');
+    print('🚨🚨🚨 THIS IS THE MOST IMPORTANT FUNCTION 🚨🚨🚨');
+    
+    // Check for winner - first try the game session (for games pending review), then check game state
+    String? winnerId = _currentGameSession?.winnerId ?? _currentGameState?.checkForWinner();
+    
+    print('🔥🔥🔥 TEACHER COMPLETING GAME - STARTING FIREBASE UPDATES 🔥🔥🔥');
+    print('🎯 winnerId from session: ${_currentGameSession?.winnerId}, winnerId from state: ${_currentGameState?.checkForWinner()}');
+    
     if (winnerId == null) {
+      print('❌ No winner found in either session or state');
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('No winner yet. Continue playing or end early.')),
       );
@@ -164,14 +175,51 @@ class _TeacherPronunciationMonitorState extends State<TeacherPronunciationMonito
 
     if (confirmed == true) {
       try {
-        // Update all player stats
-        await _updatePlayerStats(winnerId);
+        print('🚨🚨🚨 TEACHER CONFIRMED COMPLETION - ABOUT TO UPDATE FIREBASE 🚨🚨🚨');
+        
+        // SIMPLE DIRECT FIREBASE UPDATE - NO COMPLEX FLOWS
+        if (_currentGameSession != null && _currentGameState != null) {
+          print('🚨 Game session exists: ${_currentGameSession!.gameId}');
+          print('🚨 Game state exists: ${_currentGameState != null}');
+          print('🚨 Number of players: ${_currentGameSession!.players.length}');
+          
+          for (final player in _currentGameSession!.players) {
+            final score = _currentGameState!.getPlayerScore(player.userId);
+            final isWinner = player.userId == winnerId;
+            
+            print('🔥🔥🔥 UPDATING FIREBASE FOR ${player.displayName}: Score=$score, Won=$isWinner 🔥🔥🔥');
+            
+            try {
+              // DIRECT FIREBASE UPDATE - NO INDIRECTION, NO SERVICE CALLS
+              final userDoc = FirebaseFirestore.instance.collection('users').doc(player.userId);
+              print('🚨 About to call Firebase update for ${player.userId}...');
+              
+              await userDoc.update({
+                'gamesPlayed': FieldValue.increment(1),
+                'gamesWon': FieldValue.increment(isWinner ? 1 : 0),
+                'wordsRead': FieldValue.increment(score),
+                'lastPlayedAt': Timestamp.fromDate(DateTime.now()),
+              });
+              print('✅✅✅ FIREBASE UPDATE SUCCESSFUL FOR ${player.displayName} ✅✅✅');
+            } catch (e) {
+              print('❌❌❌ FIREBASE UPDATE FAILED FOR ${player.displayName}: $e ❌❌❌');
+              print('❌❌❌ Error type: ${e.runtimeType} ❌❌❌');
+              // Continue updating other players even if one fails
+            }
+          }
+        } else {
+          print('❌❌❌ MISSING DATA: gameSession=${_currentGameSession != null}, gameState=${_currentGameState != null} ❌❌❌');
+        }
+        
+        print('🔥🔥🔥 ALL FIREBASE UPDATES COMPLETE - NOW ENDING GAME 🔥🔥🔥');
         
         // End the game session
-        await GameSessionService.endGameSession(
+        await GameSessionService.endGameSessionOnly(
           gameId: widget.gameSession.gameId,
           winnerId: winnerId,
         );
+        
+        print('✅ Game session ended successfully');
         
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -214,14 +262,20 @@ class _TeacherPronunciationMonitorState extends State<TeacherPronunciationMonito
 
     if (confirmed == true) {
       try {
+        print('🎯 TEACHER MONITOR: Teacher confirmed game completion without winner');
+        
         // Update all player stats without a winner (normal game completion)
         await _updatePlayerStatsWithoutWinner();
         
-        // End the game session without winner
-        await GameSessionService.endGameSession(
+        print('🎯 TEACHER MONITOR: About to end game session without winner for gameId: ${widget.gameSession.gameId}');
+        
+        // End the game session without winner and without duplicate stats update
+        await GameSessionService.endGameSessionOnly(
           gameId: widget.gameSession.gameId,
           winnerId: null, // No winner
         );
+        
+        print('✅ TEACHER MONITOR: Game session ended successfully (no winner)');
         
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -243,12 +297,21 @@ class _TeacherPronunciationMonitorState extends State<TeacherPronunciationMonito
   }
 
   Future<void> _updatePlayerStats(String winnerId) async {
-    if (_currentGameState == null || _currentGameSession == null) return;
+    print('🎯 TEACHER MONITOR: Starting _updatePlayerStats with winnerId: $winnerId');
+    
+    if (_currentGameState == null || _currentGameSession == null) {
+      print('❌ TEACHER MONITOR: Missing game state or session - cannot update stats');
+      return;
+    }
 
     try {
+      print('🎯 TEACHER MONITOR: Found ${_currentGameSession!.players.length} players to update');
+      
       for (final player in _currentGameSession!.players) {
         final score = _currentGameState!.getPlayerScore(player.userId);
         final isWinner = player.userId == winnerId;
+        
+        print('🎯 TEACHER MONITOR: Updating player ${player.userId} (${player.displayName}) - Score: $score, Won: $isWinner');
         
         // Update player stats in Firestore using StudentModel approach
         await FirestoreService.updateStudentStats(
@@ -256,19 +319,33 @@ class _TeacherPronunciationMonitorState extends State<TeacherPronunciationMonito
           wordsRead: score,
           won: isWinner,
         );
+        
+        print('✅ TEACHER MONITOR: Successfully updated stats for player ${player.userId}');
       }
       
+      print('✅ TEACHER MONITOR: All player stats updated successfully');
+      
     } catch (e) {
+      print('❌ TEACHER MONITOR: Failed to update player stats: $e');
       rethrow;
     }
   }
 
   Future<void> _updatePlayerStatsWithoutWinner() async {
-    if (_currentGameState == null || _currentGameSession == null) return;
+    print('🎯 TEACHER MONITOR: Starting _updatePlayerStatsWithoutWinner');
+    
+    if (_currentGameState == null || _currentGameSession == null) {
+      print('❌ TEACHER MONITOR: Missing game state or session - cannot update stats without winner');
+      return;
+    }
 
     try {
+      print('🎯 TEACHER MONITOR: Found ${_currentGameSession!.players.length} players to update (no winner)');
+      
       for (final player in _currentGameSession!.players) {
         final score = _currentGameState!.getPlayerScore(player.userId);
+        
+        print('🎯 TEACHER MONITOR: Updating player ${player.userId} (${player.displayName}) - Score: $score, Won: false');
         
         // Update player stats in Firestore - game completed normally but no winner
         await FirestoreService.updateStudentStats(
@@ -276,9 +353,14 @@ class _TeacherPronunciationMonitorState extends State<TeacherPronunciationMonito
           wordsRead: score,
           won: false, // No winner in this game
         );
+        
+        print('✅ TEACHER MONITOR: Successfully updated stats for player ${player.userId} (no winner)');
       }
       
+      print('✅ TEACHER MONITOR: All player stats updated successfully (no winner)');
+      
     } catch (e) {
+      print('❌ TEACHER MONITOR: Failed to update player stats without winner: $e');
       rethrow;
     }
   }

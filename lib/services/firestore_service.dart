@@ -478,9 +478,12 @@ class FirestoreService {
             'wordsRead': currentWordsRead + wordsRead,
             'lastPlayedAt': Timestamp.fromDate(DateTime.now()),
           });
+          print('✅ FIRESTORE: Updated stats for student $studentId - Games: ${currentGamesPlayed + 1}, Words: ${currentWordsRead + wordsRead}, Won: ${won ? "YES" : "NO"}');
         }
       });
     } catch (e) {
+      print('❌ FIRESTORE: Failed to update student stats for $studentId: $e');
+      rethrow; // Re-throw so calling code knows there was an error
     }
   }
 

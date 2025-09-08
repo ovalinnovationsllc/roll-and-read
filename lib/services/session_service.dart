@@ -268,16 +268,19 @@ class SessionService {
         if (user.isAdmin && savedRoute.startsWith('/admin-dashboard')) {
           // Teachers can always return to dashboard
           safePrint('✅ Restoring teacher dashboard');
-          // Clear any leftover game session for teachers
-          if (gameSession != null) {
+          // DON'T clear teacher game sessions if they have pendingTeacherReview games!
+          if (gameSession != null && gameSession.status != GameStatus.pendingTeacherReview) {
             safePrint('🧹 Clearing teacher\'s old game session (teachers monitor, not play)');
             await clearGameSession();
+          } else if (gameSession != null && gameSession.status == GameStatus.pendingTeacherReview) {
+            safePrint('📝 Teacher has pendingTeacherReview game - preserving session for completion');
           }
           return savedRoute;
         } else if (user.isAdmin) {
           // Teacher but not on dashboard route - send to dashboard
           safePrint('🎓 Teacher detected - redirecting to dashboard');
-          if (gameSession != null) {
+          // DON'T clear pendingTeacherReview games!
+          if (gameSession != null && gameSession.status != GameStatus.pendingTeacherReview) {
             await clearGameSession();
           }
           return '/admin-dashboard';

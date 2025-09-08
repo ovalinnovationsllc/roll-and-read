@@ -1,6 +1,8 @@
 // Demo AI service for testing without API keys
 // In production, replace this with AIWordService using real AI APIs
 
+import 'content_filter_service.dart';
+
 class DemoAIService {
   static Map<String, List<List<String>>> _demoResponses = {
     'cvc_at': [
@@ -115,15 +117,15 @@ class DemoAIService {
     if (lowerPrompt.contains('cvc') || lowerPrompt.contains('ending')) {
       // Check for specific endings
       if (lowerPrompt.contains('at')) {
-        return _demoResponses['cvc_at']!;
+        return _filterWordGrid(_demoResponses['cvc_at']!);
       } else if (lowerPrompt.contains('it')) {
-        return _demoResponses['cvc_it']!;
+        return _filterWordGrid(_demoResponses['cvc_it']!);
       } else if (lowerPrompt.contains('et')) {
-        return _demoResponses['cvc_et']!;
+        return _filterWordGrid(_demoResponses['cvc_et']!);
       } else if (lowerPrompt.contains('ot')) {
-        return _demoResponses['cvc_ot']!;
+        return _filterWordGrid(_demoResponses['cvc_ot']!);
       } else if (lowerPrompt.contains('ut')) {
-        return _demoResponses['cvc_ut']!;
+        return _filterWordGrid(_demoResponses['cvc_ut']!);
       }
     }
 
@@ -142,8 +144,9 @@ class DemoAIService {
       }
     }
 
-    // Return the matched word grid
-    return _demoResponses[bestMatch] ?? _demoResponses['animals']!;
+    // Get the matched word grid and apply content filtering
+    final rawGrid = _demoResponses[bestMatch] ?? _demoResponses['animals']!;
+    return _filterWordGrid(rawGrid);
   }
 
   /// Simple similarity calculation based on keyword matching
@@ -222,5 +225,35 @@ class DemoAIService {
   }) async {
     final grid = await generateWordGrid(prompt: prompt, difficulty: difficulty);
     return grid.map((row) => row[column - 1]).toList();
+  }
+
+  /// Filter word grid for child safety
+  static List<List<String>> _filterWordGrid(List<List<String>> rawGrid) {
+    final filteredGrid = <List<String>>[];
+    
+    for (final row in rawGrid) {
+      // Filter each row for inappropriate content
+      final safeWords = ContentFilterService.filterWords(row);
+      
+      // Ensure we have exactly 6 words per row
+      final paddedRow = <String>[];
+      paddedRow.addAll(safeWords.take(6));
+      
+      // If we don't have enough safe words, pad with safe replacements
+      if (paddedRow.length < 6) {
+        final replacements = ContentFilterService.getSafeReplacements(6 - paddedRow.length);
+        paddedRow.addAll(replacements);
+      }
+      
+      filteredGrid.add(paddedRow.take(6).toList());
+    }
+    
+    // Ensure we have exactly 6 rows
+    while (filteredGrid.length < 6) {
+      final safeRow = ContentFilterService.getSafeReplacements(6);
+      filteredGrid.add(safeRow);
+    }
+    
+    return filteredGrid.take(6).toList();
   }
 }

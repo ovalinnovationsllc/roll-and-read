@@ -12,15 +12,14 @@ import '../models/student_model.dart';
 import '../models/player_colors.dart';
 import '../services/firestore_service.dart';
 import '../services/ai_word_service.dart';
-import '../services/word_list_service.dart';
 import '../services/game_session_service.dart';
 import '../services/game_state_service.dart';
-import '../models/word_list_model.dart';
 import '../models/game_session_model.dart';
 import '../models/game_state_model.dart';
 import '../models/student_game_model.dart';
 import 'teacher_game_screen.dart';
 import 'teacher_review_screen.dart';
+import 'teacher_pronunciation_monitor.dart';
 import '../data/preset_word_lists.dart';
 
 class AdminDashboardPage extends StatefulWidget {
@@ -890,53 +889,10 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
   void _showCreateStudentGameDialog() {
     bool isCreating = false;
     String selectedDifficulty = 'elementary';
-    WordListModel? selectedWordList;
-    List<WordListModel> availableWordLists = [];
-    List<WordListModel> filteredWordLists = [];
-    String wordListSearchQuery = '';
-    final wordListSearchController = TextEditingController();
-    bool loadingWordLists = false;
-    String wordListMode = 'default'; // 'default', 'existing', 'new', or 'preset'
+    String wordListMode = 'default'; // 'default', 'new', or 'preset'
     int maxPlayers = 2; // Default to 2 players
     String selectedPresetGrade = 'kindergarten'; // For preset lists
     String selectedPrompt = ''; // Local to dialog - resets each time dialog opens
-
-    // Filter word lists based on search query
-    void filterWordLists(String query, StateSetter setDialogState) {
-      setDialogState(() {
-        wordListSearchQuery = query;
-        if (query.isEmpty) {
-          filteredWordLists = availableWordLists;
-        } else {
-          filteredWordLists = availableWordLists.where((wordList) {
-            return wordList.prompt.toLowerCase().contains(query.toLowerCase());
-          }).toList();
-        }
-      });
-    }
-
-    // Load existing word lists
-    void loadWordLists(StateSetter setDialogState) async {
-      if (loadingWordLists) return;
-      setDialogState(() {
-        loadingWordLists = true;
-      });
-      try {
-        final wordLists = await WordListService.getAllWordLists();
-        if (mounted) {
-          setDialogState(() {
-            availableWordLists = wordLists;
-            filteredWordLists = wordLists; // Initially show all
-            loadingWordLists = false;
-          });
-        }
-      } catch (e) {
-        setDialogState(() {
-          loadingWordLists = false;
-        });
-      }
-    }
-
 
     showDialog(
       context: context,
@@ -957,23 +913,17 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
                     value: 'preset',
                     label: Text('Preset Lists'),
                   ),
-                  ButtonSegment<String>(
-                    value: 'existing',
-                    label: Text('Saved'),
-                  ),
-                  ButtonSegment<String>(
-                    value: 'new',
-                    label: Text('Generate'),
-                  ),
+                  // HIDDEN: Generate option per user request
+                  // ButtonSegment<String>(
+                  //   value: 'new',
+                  //   label: Text('Generate'),
+                  // ),
                 ],
                 selected: {wordListMode},
                 onSelectionChanged: (Set<String> newSelection) {
                   setDialogState(() {
                     wordListMode = newSelection.first;
                   });
-                  if (wordListMode == 'existing' && availableWordLists.isEmpty) {
-                    loadWordLists(setDialogState);
-                  }
                 },
               ),
               const SizedBox(height: 16),
@@ -1010,123 +960,7 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
               const SizedBox(height: 16),
               
               // Show options based on selected mode
-              if (wordListMode == 'existing') ...[
-                if (loadingWordLists)
-                  const CircularProgressIndicator()
-                else if (availableWordLists.isEmpty)
-                  const Text('No saved word lists found.')
-                else ...[
-                  // Autocomplete word list selection
-                  Autocomplete<WordListModel>(
-                    optionsBuilder: (TextEditingValue textEditingValue) {
-                      if (textEditingValue.text.isEmpty) {
-                        return const Iterable<WordListModel>.empty();
-                      }
-                      // Filter and remove duplicates based on prompt text
-                      final filteredOptions = availableWordLists.where((WordListModel option) {
-                        final prompt = option.prompt.toLowerCase();
-                        final searchQuery = textEditingValue.text.toLowerCase();
-                        return prompt.contains(searchQuery);
-                      }).toList();
-                      
-                      // Remove duplicates by prompt text
-                      final Map<String, WordListModel> uniqueOptions = {};
-                      for (final option in filteredOptions) {
-                        final key = option.prompt.isEmpty ? 'Untitled List' : option.prompt;
-                        if (!uniqueOptions.containsKey(key)) {
-                          uniqueOptions[key] = option;
-                        }
-                      }
-                      
-                      return uniqueOptions.values.take(10); // Limit to 10 results
-                    },
-                    displayStringForOption: (WordListModel option) => 
-                        option.prompt.isEmpty ? 'Untitled List' : option.prompt,
-                    onSelected: (WordListModel selection) {
-                      setDialogState(() {
-                        selectedWordList = selection;
-                      });
-                    },
-                    fieldViewBuilder: (context, textEditingController, focusNode, onFieldSubmitted) {
-                      // Pre-populate if we have a selection
-                      if (selectedWordList != null && textEditingController.text.isEmpty) {
-                        textEditingController.text = selectedWordList!.prompt.isEmpty 
-                            ? 'Untitled List' 
-                            : selectedWordList!.prompt;
-                      }
-                      
-                      return TextField(
-                        controller: textEditingController,
-                        focusNode: focusNode,
-                        onSubmitted: (value) => onFieldSubmitted(),
-                        decoration: InputDecoration(
-                          labelText: 'Search & Select Word List',
-                          hintText: 'Type to search saved word lists...',
-                          prefixIcon: const Icon(Icons.search),
-                          suffixIcon: selectedWordList != null
-                              ? Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Icon(Icons.check_circle, color: Colors.green, size: 20),
-                                    IconButton(
-                                      icon: const Icon(Icons.clear),
-                                      onPressed: () {
-                                        setDialogState(() {
-                                          selectedWordList = null;
-                                          textEditingController.clear();
-                                        });
-                                      },
-                                    ),
-                                  ],
-                                )
-                              : null,
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                        ),
-                        onChanged: (value) {
-                          // Clear selection when typing
-                          if (selectedWordList != null) {
-                            setDialogState(() {
-                              selectedWordList = null;
-                            });
-                          }
-                        },
-                      );
-                    },
-                    optionsViewBuilder: (context, onSelected, options) {
-                      return Align(
-                        alignment: Alignment.topLeft,
-                        child: Material(
-                          elevation: 4.0,
-                          child: ConstrainedBox(
-                            constraints: const BoxConstraints(maxHeight: 200, maxWidth: 300),
-                            child: ListView.builder(
-                              shrinkWrap: true,
-                              itemCount: options.length,
-                              itemBuilder: (context, index) {
-                                final option = options.elementAt(index);
-                                final displayText = option.prompt.isEmpty ? 'Untitled List' : option.prompt;
-                                return InkWell(
-                                  onTap: () => onSelected(option),
-                                  child: Padding(
-                                    padding: const EdgeInsets.all(16.0),
-                                    child: Text(
-                                      displayText,
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ),
-                                );
-                              },
-                            ),
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                ],
-              ] else if (wordListMode == 'preset') ...[
+              if (wordListMode == 'preset') ...[
                 DropdownButtonFormField<String>(
                   value: selectedPresetGrade,
                   decoration: const InputDecoration(
@@ -1220,10 +1054,6 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
                     wordGrid = _getDefaultSimpleWordGrid();
                   } else if (wordListMode == 'preset') {
                     wordGrid = PresetWordLists.getRandomWordsForGrid(selectedPresetGrade);
-                  } else if (wordListMode == 'existing' && selectedWordList != null) {
-                    wordGrid = selectedWordList!.wordGrid;
-                    // Update the word list usage stats
-                    WordListService.updateLastUsed(selectedWordList!.id);
                   } else if (wordListMode == 'new') {
                     useAIWords = true;
                   }
@@ -1521,35 +1351,10 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
   void _showCreateGameDialog() {
     bool isCreating = false;
     String selectedDifficulty = 'elementary';
-    WordListModel? selectedWordList;
-    List<WordListModel> availableWordLists = [];
-    bool loadingWordLists = false;
-    String wordListMode = 'default'; // 'default', 'existing', 'new', or 'preset'
+    String wordListMode = 'default'; // 'default', 'new', or 'preset'
     int maxPlayers = 2; // Default to 2 players
     String selectedPresetGrade = 'kindergarten'; // For preset lists
     String selectedPrompt = ''; // Local to dialog - resets each time dialog opens
-
-    // Load existing word lists
-    void loadWordLists(StateSetter setDialogState) async {
-      if (loadingWordLists) return;
-      setDialogState(() {
-        loadingWordLists = true;
-      });
-      try {
-        final wordLists = await WordListService.getAllWordLists();
-        if (mounted) {
-          setDialogState(() {
-            availableWordLists = wordLists;
-            loadingWordLists = false;
-          });
-        }
-      } catch (e) {
-        setDialogState(() {
-          loadingWordLists = false;
-        });
-      }
-    }
-
 
     showDialog(
       context: context,
@@ -1570,23 +1375,17 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
                     value: 'preset',
                     label: Text('Preset Lists'),
                   ),
-                  ButtonSegment<String>(
-                    value: 'existing',
-                    label: Text('Saved'),
-                  ),
-                  ButtonSegment<String>(
-                    value: 'new',
-                    label: Text('Generate'),
-                  ),
+                  // HIDDEN: Generate option per user request
+                  // ButtonSegment<String>(
+                  //   value: 'new',
+                  //   label: Text('Generate'),
+                  // ),
                 ],
                 selected: {wordListMode},
                 onSelectionChanged: (Set<String> newSelection) {
                   setDialogState(() {
                     wordListMode = newSelection.first;
                   });
-                  if (wordListMode == 'existing' && availableWordLists.isEmpty) {
-                    loadWordLists(setDialogState);
-                  }
                 },
               ),
               const SizedBox(height: 16),
@@ -1623,36 +1422,7 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
               const SizedBox(height: 16),
               
               // Show options based on selected mode
-              if (wordListMode == 'existing') ...[
-                if (loadingWordLists)
-                  const CircularProgressIndicator()
-                else if (availableWordLists.isEmpty)
-                  const Text('No saved word lists found.')
-                else
-                  DropdownButtonFormField<WordListModel>(
-                    value: selectedWordList,
-                    decoration: const InputDecoration(
-                      labelText: 'Select Word List',
-                      prefixIcon: Icon(Icons.list),
-                    ),
-                    hint: const Text('Choose a saved word list'),
-                    items: availableWordLists
-                        .map((wordList) => DropdownMenuItem(
-                              value: wordList,
-                              child: Text(
-                                wordList.prompt.isEmpty ? 'Untitled List' : wordList.prompt,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ))
-                        .toList(),
-                    onChanged: (value) {
-                      setDialogState(() {
-                        selectedWordList = value;
-                      });
-                    },
-                  ),
-              ] else if (wordListMode == 'preset') ...[
+              if (wordListMode == 'preset') ...[
                 DropdownButtonFormField<String>(
                   value: selectedPresetGrade,
                   decoration: const InputDecoration(
@@ -1746,10 +1516,6 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
                     wordGrid = _getDefaultSimpleWordGrid();
                   } else if (wordListMode == 'preset') {
                     wordGrid = PresetWordLists.getRandomWordsForGrid(selectedPresetGrade);
-                  } else if (wordListMode == 'existing' && selectedWordList != null) {
-                    wordGrid = selectedWordList!.wordGrid;
-                    // Update the word list usage stats
-                    WordListService.updateLastUsed(selectedWordList!.id);
                   } else if (wordListMode == 'new') {
                     useAIWords = true;
                   }
@@ -1949,10 +1715,11 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
       builder: (context, snapshot) {
         if (snapshot.data != null) {
           // Update the active games list without setState to avoid rebuild loop
-          // Include both waiting and in-progress games (including single player)
+          // Include waiting, in-progress, and pending review games
           _activeGames = snapshot.data!.where((game) => 
             game.status == GameStatus.waitingForPlayers || 
-            game.status == GameStatus.inProgress
+            game.status == GameStatus.inProgress ||
+            game.status == GameStatus.pendingTeacherReview
           ).toList();
         }
         
@@ -2273,6 +2040,11 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
         statusText = 'In Progress';
         statusIcon = Icons.play_circle;
         break;
+      case GameStatus.pendingTeacherReview:
+        statusColor = Colors.orange;
+        statusText = 'Needs Review';
+        statusIcon = Icons.pending_actions;
+        break;
       default:
         statusColor = Colors.grey;
         statusText = 'Unknown';
@@ -2281,16 +2053,30 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
 
     return GestureDetector(
       onTap: () {
-        // Navigate to the game screen
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => TeacherGameScreen(
-              user: widget.adminUser,
-              gameSession: game,
+        // Navigate to different screens based on game status
+        if (game.status == GameStatus.pendingTeacherReview) {
+          // Navigate to teacher pronunciation monitor for review
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => TeacherPronunciationMonitor(
+                user: widget.adminUser,
+                gameSession: game,
+              ),
             ),
-          ),
-        );
+          );
+        } else {
+          // Navigate to the regular game screen
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => TeacherGameScreen(
+                user: widget.adminUser,
+                gameSession: game,
+              ),
+            ),
+          );
+        }
       },
       child: Card(
         margin: const EdgeInsets.symmetric(vertical: 4),
@@ -3063,8 +2849,8 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
   // Helper methods for embedded monitor
   Future<void> _approvePronunciation(GameSessionModel gameSession, String cellKey) async {
     try {
-      // Get player IDs from game session
-      final playerIds = gameSession.players.map((p) => p.userId).toList();
+      // CRITICAL: Use playerIds field to maintain turn order consistency
+      final playerIds = gameSession.playerIds;
       
       await GameStateService.approvePronunciation(
         gameId: gameSession.gameId,
@@ -3095,8 +2881,8 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
 
   Future<void> _rejectPronunciation(GameSessionModel gameSession, String cellKey) async {
     try {
-      // Get player IDs from game session
-      final playerIds = gameSession.players.map((p) => p.userId).toList();
+      // CRITICAL: Use playerIds field to maintain turn order consistency
+      final playerIds = gameSession.playerIds;
       
       await GameStateService.rejectPronunciation(
         gameId: gameSession.gameId,
@@ -4133,23 +3919,6 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
             _buildPatternButton('Long I (bike, time)', 'words with long i sound', selectedPrompt, onPromptChanged),
             _buildPatternButton('Long O (boat, home)', 'words with long o sound', selectedPrompt, onPromptChanged),
             _buildPatternButton('Long U (cube, tune)', 'words with long u sound', selectedPrompt, onPromptChanged),
-          ],
-        ),
-        const SizedBox(height: 16),
-        
-        // Simple Topics  
-        const Text('Simple Topics:', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
-        const SizedBox(height: 8),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            _buildPatternButton('Animals', 'farm animals', selectedPrompt, onPromptChanged),
-            _buildPatternButton('Colors', 'basic color names', selectedPrompt, onPromptChanged),
-            _buildPatternButton('3-Letter Words', '3 letter CVC words', selectedPrompt, onPromptChanged),
-            _buildPatternButton('4-Letter Words', '4 letter words', selectedPrompt, onPromptChanged),
-            _buildPatternButton('5-Letter Words', '5 letter words', selectedPrompt, onPromptChanged),
-            _buildPatternButton('6-Letter Words', '6 letter words', selectedPrompt, onPromptChanged),
           ],
         ),
         const SizedBox(height: 16),

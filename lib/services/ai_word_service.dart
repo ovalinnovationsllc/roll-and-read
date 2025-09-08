@@ -288,17 +288,33 @@ class AIWordService {
       success = finalWords.isNotEmpty;
       print('═══════════════════════════════════════════════════════════════');
       
-      // Convert to grid format
+      // Convert to grid format - maintain word count exactly as generated
       final gridWords = finalWords.take(36).toList();
-      while (gridWords.length < 36) {
-        gridWords.add('word${gridWords.length + 1}');
-      }
+      // Don't pad with random words - if we don't have 36, that's an issue that should be handled elsewhere
       
       // Organize into 6x6 grid
       final grid = <List<String>>[];
       for (int row = 0; row < 6; row++) {
         final startIndex = row * 6;
-        grid.add(gridWords.sublist(startIndex, startIndex + 6));
+        final endIndex = startIndex + 6;
+        
+        if (startIndex < gridWords.length) {
+          // Get what words we have for this row
+          final rowWords = <String>[];
+          for (int i = startIndex; i < endIndex && i < gridWords.length; i++) {
+            rowWords.add(gridWords[i]);
+          }
+          
+          // Pad row to 6 words with placeholders if needed
+          while (rowWords.length < 6) {
+            rowWords.add('---');
+          }
+          
+          grid.add(rowWords);
+        } else {
+          // Empty row - fill with placeholders
+          grid.add(List.filled(6, '---'));
+        }
       }
       
       // Filter each row for inappropriate words
@@ -493,11 +509,13 @@ class AIWordService {
 
 CRITICAL: This is for children ages 5-12 with reading difficulties!
 
+$topicGuidance
+
 STRICT WORD REQUIREMENTS:
 1. MAXIMUM 6 letters long (NO long words like "preeminent", "exceedingly")
 2. ONLY words a kindergarten child would know and say
 3. NO complex vocabulary, academic words, or adult words
-4. Think: cat, dog, run, sun, big, red (YES) - NOT: eleemosynary, exceedingly (NO!)
+4. Think of words a 5-year-old uses every day
 
 BANNED WORD TYPES:
 ❌ Academic words: preeminent, eleemosynary, exceedingly, magnificent, extraordinary
@@ -507,27 +525,19 @@ BANNED WORD TYPES:
 ❌ Sophisticated vocabulary
 ❌ Any word a 5-year-old wouldn't recognize
 
-APPROVED SIMPLE WORDS ONLY:
-✅ Animals: cat, dog, pig, cow, duck, hen, fox, bee
-✅ Colors: red, blue, pink, green, yellow, brown, black, white  
-✅ Actions: run, jump, sit, walk, play, eat, sleep, hop
-✅ Body: eye, ear, nose, hand, foot, head, arm, leg
-✅ Family: mom, dad, baby, sister, brother
-✅ Food: apple, bread, milk, cake, egg, fish
-✅ Home: bed, chair, table, door, window, house
-
 $patternInstructions
 
 $endingEmphasis
 
-TASK: Generate exactly 36 words for "$prompt"
+TASK: Generate exactly 36 words for "$enhancedPrompt"
 - Each word MAXIMUM 6 letters
 - Each word must be something a kindergarten child says daily
 - NO duplicates
 - NO complex words
 ${patternInstructions.isNotEmpty ? '- EVERY word must match the pattern requirement' : ''}
 
-RESPOND FORMAT: word1, word2, word3, word4, word5, word6, word7, word8, word9, word10, word11, word12, word13, word14, word15, word16, word17, word18, word19, word20, word21, word22, word23, word24, word25, word26, word27, word28, word29, word30, word31, word32, word33, word34, word35, word36
+RESPOND FORMAT: List exactly 36 simple words separated by commas.
+(Just the words, separated by commas, no numbering or extra text)
 
 ONLY the 36 simple words - no extra text.
 ''';
@@ -876,8 +886,8 @@ $patternInstructions- Simple, clear, and safe for children
 - Thematically connected
 
 ${patternInstructions.isNotEmpty ? 'CRITICAL REQUIREMENT: You MUST follow the pattern constraints above. Double-check that EVERY word meets the specified pattern.\n' : ''}
-IMPORTANT: Respond with exactly 6 words separated by commas only:
-word1, word2, word3, word4, word5, word6
+IMPORTANT: Respond with exactly 6 words separated by commas only.
+Example format: cat, dog, sun, moon, star, tree
 
 No extra text, just the 6 comma-separated words.
 ''';
@@ -1063,17 +1073,41 @@ No extra text, just the 6 comma-separated words.
     
     print('🤖 Final validated word list (${words.length}): ${words.take(10).toList()}...');
     
-    // Ensure we have exactly 36 words - pad with safe, simple defaults if needed
-    final simpleDefaults = ['cat', 'dog', 'run', 'sun', 'big', 'red', 'top', 'hop', 'sit', 'hit'];
-    int defaultIndex = 0;
-    while (words.length < 36) {
-      final defaultWord = simpleDefaults[defaultIndex % simpleDefaults.length];
-      if (!words.contains(defaultWord)) {
-        words.add(defaultWord);
-      } else {
-        words.add('${defaultWord}${words.length}'); // Add number to make unique
+    // Ensure we have exactly 36 words - pad with PATTERN-SPECIFIC fallbacks if needed
+    if (words.length < 36) {
+      print('⚠️ Need ${36 - words.length} more words, using pattern-specific fallbacks');
+      
+      // Try to get pattern-specific fallback words
+      if (requiredEnding != null && requiredEnding.isNotEmpty) {
+        // For ending patterns, use our curated lists
+        final fallbackWords = _getFallbackWordsForEnding(requiredEnding.toLowerCase());
+        for (final word in fallbackWords) {
+          if (!words.contains(word) && words.length < 36) {
+            words.add(word);
+            print('✅ Added pattern fallback: "$word" (ends with "$requiredEnding")');
+          }
+        }
+      } else if (requiredLength != null && requiredLength > 0) {
+        // For length patterns, use length-specific words
+        final fallbackWords = _getFallbackWordsForLength(requiredLength, lowerPrompt: originalPrompt.toLowerCase());
+        for (final word in fallbackWords) {
+          if (!words.contains(word) && word.length == requiredLength && words.length < 36) {
+            words.add(word);
+            print('✅ Added length fallback: "$word" (${word.length} letters)');
+          }
+        }
       }
-      defaultIndex++;
+      
+      // If STILL not enough, this means the pattern is too restrictive
+      // Better to fail clearly than give wrong words
+      if (words.length < 36) {
+        print('❌ CRITICAL: Could only find ${words.length} words matching pattern requirements');
+        print('❌ Pattern too restrictive or AI failed to generate valid words');
+        // Fill remaining with clearly marked placeholder words
+        while (words.length < 36) {
+          words.add('---');  // Clear indicator that we couldn't find valid words
+        }
+      }
     }
     if (words.length > 36) {
       words = words.take(36).toList();
@@ -1098,10 +1132,8 @@ No extra text, just the 6 comma-separated words.
         .where((word) => word.isNotEmpty)
         .toList();
     
-    // Ensure we have the right number of words
-    while (words.length < count) {
-      words.add('word${words.length + 1}');
-    }
+    // Don't pad with random words - let the caller handle pattern-specific fallbacks
+    // If AI didn't provide enough words, that's important information
     if (words.length > count) {
       words.removeRange(count, words.length);
     }

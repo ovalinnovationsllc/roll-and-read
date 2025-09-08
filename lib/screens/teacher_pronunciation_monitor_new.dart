@@ -53,7 +53,8 @@ class _TeacherPronunciationMonitorNewState extends State<TeacherPronunciationMon
 
   Future<void> _approvePronunciation(String cellKey) async {
     try {
-      final playerIds = _currentGameSession?.players.map((p) => p.userId).toList() ?? [];
+      // CRITICAL: Use playerIds field to maintain turn order consistency
+      final playerIds = _currentGameSession?.playerIds ?? [];
       await GameStateService.approvePronunciation(
         gameId: widget.gameSession.gameId,
         cellKey: cellKey,
@@ -70,7 +71,8 @@ class _TeacherPronunciationMonitorNewState extends State<TeacherPronunciationMon
 
   Future<void> _rejectPronunciation(String cellKey) async {
     try {
-      final playerIds = _currentGameSession?.players.map((p) => p.userId).toList() ?? [];
+      // CRITICAL: Use playerIds field to maintain turn order consistency
+      final playerIds = _currentGameSession?.playerIds ?? [];
       await GameStateService.rejectPronunciation(
         gameId: widget.gameSession.gameId,
         cellKey: cellKey,

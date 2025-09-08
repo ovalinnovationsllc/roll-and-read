@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:math' as math;
 import 'dart:io' show Platform;
 import 'package:flutter_tts/flutter_tts.dart';
@@ -56,6 +57,7 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
   bool _hasSelectedThisTurn = false; // Track if player already selected for this dice roll
   String? _previousTurnPlayerId; // Track previous turn to detect turn changes
   bool _gameCompletionInProgress = false; // Prevent multiple completion attempts
+  String? _processedWinnerId; // Track which winner we've already processed
   
   // Game content - 6x6 grid
   late List<List<String>> gridContent;
@@ -352,7 +354,8 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
       
       final existingState = await GameStateService.getGameState(widget.gameSession.gameId);
       if (existingState == null) {
-        final playerIds = widget.gameSession.players.map((p) => p.userId).toList();
+        // CRITICAL: Use playerIds field to maintain turn order consistency
+        final playerIds = widget.gameSession.playerIds;
         
         // Only initialize game state if we have players
         if (playerIds.isNotEmpty) {
@@ -700,9 +703,9 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
     });
     
     try {
-      // Start pronunciation attempt
-      final playerIds = widget.gameSession.players.map((p) => p.userId).toList();
-      await GameStateService.startPronunciationAttemptAndSwitchTurn(
+      // Start pronunciation attempt - Use playerIds field to maintain order consistency
+      final playerIds = widget.gameSession.playerIds;
+      await GameStateService.startPronunciationAttempt(
         gameId: widget.gameSession.gameId,
         playerId: widget.user.id,
         playerName: widget.user.displayName,
@@ -738,8 +741,8 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
   }
 
   void _approvePronunciation(String cellKey) async {
-    // Get player IDs from current game session
-    final playerIds = (_currentGameSession ?? widget.gameSession).players.map((p) => p.userId).toList();
+    // CRITICAL: Use playerIds field to maintain turn order consistency
+    final playerIds = (_currentGameSession ?? widget.gameSession).playerIds;
     
     await GameStateService.approvePronunciation(
       gameId: widget.gameSession.gameId,
@@ -751,8 +754,8 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
   }
 
   void _rejectPronunciation(String cellKey) async {
-    // Get player IDs from current game session
-    final playerIds = (_currentGameSession ?? widget.gameSession).players.map((p) => p.userId).toList();
+    // CRITICAL: Use playerIds field to maintain turn order consistency
+    final playerIds = (_currentGameSession ?? widget.gameSession).playerIds;
     
     await GameStateService.rejectPronunciation(
       gameId: widget.gameSession.gameId,
@@ -863,7 +866,7 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
                   CircularProgressIndicator(),
                   SizedBox(height: 16),
                   Text(
-                    'Loading...',
+                    'Waiting for players to join...',
                     style: TextStyle(fontSize: 16, color: AppColors.textSecondary),
                   ),
                 ],
@@ -883,6 +886,10 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
               print('🎮 GAME OVER DETECTED: Status = ${updatedSession.status}');
               print('🧹 Clearing saved game session to prevent rejoin...');
               SessionService.clearGameSession();
+            } else if (updatedSession.status == GameStatus.pendingTeacherReview) {
+              // Don't clear session for pending review - teacher needs to access it!
+              print('📝 Game pending teacher review - keeping session for teacher access');
+              // Do NOT clear the session here - teachers need to be able to access the game
             }
           }
           
@@ -941,32 +948,56 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
               // Check for winner and show celebration (moved from build method)
               final winnerId = _currentGameState?.checkForWinner();
               
-              if (winnerId != null && !_gameEnded && !_gameCompletionInProgress) {
+              print('🕵️ WINNER CHECK: winnerId=$winnerId, processedWinner=$_processedWinnerId, gameEnded=$_gameEnded');
+              
+              // Only process if we haven't already processed this winner
+              if (winnerId != null && _processedWinnerId != winnerId && !_gameEnded) {
+                print('🎉 NEW WINNER DETECTED - PROCESSING: $winnerId');
+                _processedWinnerId = winnerId; // Mark this winner as processed
+                _gameCompletionInProgress = true; // Prevent multiple attempts
+                
                 WidgetsBinding.instance.addPostFrameCallback((_) async {
-                  if (mounted && !_gameCompletionInProgress) {
-                    _gameCompletionInProgress = true; // Prevent multiple attempts
-                    _showWinnerDialog(winnerId);
+                  if (mounted) {
                     
-                    // Automatically end the game session when winner is detected
-                    // But only if it's not already completed and we have a valid session
-                    if (_currentGameSession?.status == GameStatus.inProgress) {
-                      try {
-                        await GameSessionService.endGameSession(
-                          gameId: _currentGameSession!.gameId,
-                          winnerId: winnerId,
-                        );
-                      } catch (e) {
-                        // Check if the error is because the game was already completed
-                        if (e.toString().contains('Game not found') || e.toString().contains('already completed')) {
-                          print('ℹ️ Game completion attempted but game was already completed - this is normal');
-                        } else {
-                          print('❌ FAILED TO COMPLETE: Error completing game ${_currentGameSession?.gameId}: $e');
+                    // DIRECTLY UPDATE FIREBASE FIRST - BEFORE SHOWING DIALOG
+                    print('🔥🔥🔥 WINNER DETECTED - UPDATING FIREBASE DIRECTLY 🔥🔥🔥');
+                    
+                    // Update Firebase for ALL players RIGHT NOW
+                    if (_currentGameSession != null && _currentGameState != null) {
+                      for (final player in _currentGameSession!.players) {
+                        final score = _currentGameState!.getPlayerScore(player.userId);
+                        final isWinner = player.userId == winnerId;
+                        
+                        print('🔥 UPDATING FIREBASE FOR ${player.displayName}: Score=$score, Won=$isWinner');
+                        
+                        try {
+                          // DIRECT FIREBASE UPDATE
+                          await FirebaseFirestore.instance.collection('users').doc(player.userId).update({
+                            'gamesPlayed': FieldValue.increment(1),
+                            'gamesWon': FieldValue.increment(isWinner ? 1 : 0),
+                            'wordsRead': FieldValue.increment(score),
+                            'lastPlayedAt': Timestamp.fromDate(DateTime.now()),
+                          });
+                          print('✅✅✅ FIREBASE UPDATED FOR ${player.displayName}');
+                        } catch (e) {
+                          print('❌❌❌ FIREBASE UPDATE FAILED FOR ${player.displayName}: $e');
                         }
-                        // Don't reset the flag - game completion was attempted
                       }
-                    } else {
-                      _gameCompletionInProgress = false;
                     }
+                    
+                    // End the game session
+                    try {
+                      await GameSessionService.endGameSessionOnly(
+                        gameId: _currentGameSession!.gameId,
+                        winnerId: winnerId,
+                      );
+                      print('✅ Game ended successfully');
+                    } catch (e) {
+                      print('❌ Error ending game: $e');
+                    }
+                    
+                    // NOW show the winner dialog AFTER Firebase is updated
+                    _showWinnerDialog(winnerId);
                   }
                 });
               }
@@ -1001,8 +1032,29 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
                 // Let the winner celebration complete first!
               }
               
+              // Show loading spinner if game state is null (while initializing)
               if (_currentGameState == null) {
-                return const Center(child: CircularProgressIndicator());
+                final isWaitingForPlayers = _currentGameSession?.status == GameStatus.waitingForPlayers;
+                final playerCount = _currentGameSession?.players.length ?? 0;
+                final gameStatus = _currentGameSession?.status;
+                
+                print('🚨 GAME STATE NULL: status=$gameStatus, players=$playerCount, waiting=$isWaitingForPlayers');
+                
+                return Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      CircularProgressIndicator(),
+                      SizedBox(height: 16),
+                      Text(
+                        isWaitingForPlayers 
+                          ? 'Waiting for players to join... ($playerCount players)'
+                          : 'Starting game... ($playerCount players)',
+                        style: TextStyle(fontSize: 16, color: AppColors.textSecondary),
+                      ),
+                    ],
+                  ),
+                );
               }
 
               return SafeArea(
@@ -2659,19 +2711,9 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
           // Only update Firebase when game is actually completed with a winner
           _resultsSaved = true; // Mark as processed to prevent duplicate writes
           
-          // Game completed with winner - update stats
-          for (final player in gameSession.players) {
-            final wordsRead = _currentGameState!.getPlayerScore(player.userId);
-            final isWinner = player.userId == winnerId;
-            await FirestoreService.updateStudentStats(
-              studentId: player.userId,
-              wordsRead: wordsRead,
-              won: isWinner,
-            );
-          }
-          
-          // End game session without duplicate stats update
-          await GameSessionService.endGameSessionOnly(
+          // Game completed with winner - mark as pending teacher review
+          // Stats will only be updated when teacher explicitly reviews and completes the game
+          await GameSessionService.markForTeacherReview(
             gameId: gameSession.gameId,
             winnerId: winnerId,
           );
@@ -2679,7 +2721,7 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: Text('Game completed! ${_getPlayerName(winnerId)} wins. Stats updated.'),
+                content: Text('Game completed! ${_getPlayerName(winnerId)} wins. Teacher will review and update stats.'),
                 backgroundColor: Colors.green,
                 duration: const Duration(seconds: 3),
               ),

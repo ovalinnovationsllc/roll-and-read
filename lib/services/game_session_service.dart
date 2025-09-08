@@ -290,6 +290,28 @@ class GameSessionService {
     }
   }
 
+  // Mark a game as pending teacher review (winner detected but stats not updated yet)
+  static Future<GameSessionModel?> markForTeacherReview({
+    required String gameId,
+    String? winnerId,
+  }) async {
+    try {
+      final gameSession = await FirestoreService.getGameSession(gameId.toUpperCase());
+      
+      if (gameSession == null) {
+        throw Exception('Game not found');
+      }
+
+      // Mark as pending teacher review - don't update stats yet
+      final updatedGame = gameSession.markForTeacherReview(winnerId: winnerId);
+      await FirestoreService.updateGameSession(updatedGame);
+      
+      return updatedGame;
+    } catch (e) {
+      rethrow;
+    }
+  }
+
   // End a game session without updating Firebase stats (for when stats are handled elsewhere)
   static Future<GameSessionModel?> endGameSessionOnly({
     required String gameId,
@@ -322,6 +344,12 @@ class GameSessionService {
       
       if (gameSession == null) {
         throw Exception('Game not found');
+      }
+
+      // Check if game is already completed to prevent duplicate stats updates
+      if (gameSession.status == GameStatus.completed) {
+        print('ℹ️ Game ${gameId} already completed - skipping duplicate stats update');
+        return gameSession;
       }
 
       // Get final game state to calculate player stats

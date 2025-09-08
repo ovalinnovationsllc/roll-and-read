@@ -19,7 +19,8 @@ class ContentFilterService {
     
     // Body/bathroom inappropriate for kids
     'poop', 'pee', 'fart', 'butt', 'ass', 'penis', 'vagina', 'breast', 'boob',
-    'naked', 'nude', 'underwear', 'toilet', 'potty', 'bathroom',
+    'naked', 'nude', 'underwear', 'toilet', 'potty', 'bathroom', 'cock', 'dick',
+    'balls', 'nuts', 'tit', 'tits', 'boobs', 'bra', 'panties', 'boxers',
     
     // Insults/mean words
     'stupid', 'dumb', 'idiot', 'moron', 'retard', 'loser', 'ugly', 'fat', 'hate',
@@ -27,7 +28,7 @@ class ContentFilterService {
     
     // Adult themes
     'sex', 'sexy', 'kiss', 'dating', 'boyfriend', 'girlfriend', 'love', 'marry',
-    'pregnant', 'baby', 'adult', 'mature',
+    'pregnant', 'baby', 'adult', 'mature', 'gay', 'lesbian', 'homo', 'queer',
     
     // Too advanced/confusing words for children with reading difficulties
     'avid', 'puff', 'soma', 'pule', 'sway', 'aura', 'slew', 'snap',
@@ -48,8 +49,11 @@ class ContentFilterService {
     'politics', 'election', 'vote', 'government',
     
     // Other inappropriate
-    'money', 'rich', 'poor', 'buy', 'sell', 'expensive', 'cheap',
-    'work', 'job', 'boss', 'fire', 'quit',
+    'money', 'rich', 'poor', 'expensive', 'cheap',
+    
+    // Slang/inappropriate slang
+    'pimp', 'ho', 'hoe', 'whore', 'slut', 'douche', 'jerk', 'punk',
+    'screw', 'suck', 'blow', 'lick', 'strip', 'bang', 'hump', 'spank',
   };
   
   // Common profanity variations and leetspeak
@@ -117,17 +121,21 @@ class ContentFilterService {
       return false;
     }
     
-    // Check if word contains inappropriate content
+    // Check if word contains inappropriate content (only for longer words to avoid false positives)
     for (final badWord in _inappropriateWords) {
-      if (cleanWord.contains(badWord)) {
+      if (badWord.length >= 4 && cleanWord.contains(badWord)) {
         return false;
       }
     }
     
     // Additional safety checks for very short words
     if (cleanWord.length <= 3) {
-      // Allow common educational words
+      // Allow common educational words including sight words
       final allowedShort = {
+        // Basic sight words (essential for reading education)
+        'a', 'i', 'in', 'is', 'it', 'to', 'me', 'my', 'am', 'on', 'we', 'go', 'up', 'at',
+        'be', 'do', 'he', 'or', 'no', 'so', 'of', 'as', 'by',
+        // Common educational words
         'cat', 'dog', 'run', 'sun', 'fun', 'red', 'bed', 'car', 'big', 'boy', 'girl',
         'the', 'and', 'for', 'are', 'but', 'not', 'you', 'all', 'can', 'her', 'was',
         'one', 'our', 'out', 'day', 'get', 'has', 'him', 'his', 'how', 'man', 'new',
@@ -137,6 +145,19 @@ class ContentFilterService {
         'sky', 'sun', 'moon', 'star', 'blue', 'bird', 'duck', 'frog', 'play', 'jump',
         'tall', 'fast', 'slow', 'pink', 'five', 'four', 'six', 'walk', 'skip', 'good',
         'tree', 'fish', 'cloud', 'rain', 'green', 'orange', 'small', 'short', 'hop',
+        // Common 3-letter words safe for children
+        'job', 'box', 'fox', 'bus', 'cup', 'pen', 'bag', 'egg', 'leg', 'arm', 'ear',
+        'eye', 'toy', 'key', 'ice', 'age', 'art', 'oil', 'air', 'sea', 'tie', 'pie',
+        'cow', 'pig', 'bee', 'ant', 'bug', 'web', 'net', 'jet', 'van', 'map', 'cap',
+        // Additional animals that are safe 3-letter words
+        'owl', 'hen', 'ram', 'yak', 'emu', 'ape', 'bat', 'cod', 'eel', 'elk', 'jay',
+        'lap', 'tap', 'zip', 'tip', 'lip', 'hip', 'dip', 'rip', 'nip', 'sip', 'row',
+        'low', 'bow', 'cow', 'mow', 'sow', 'tow', 'jaw', 'paw', 'raw', 'saw', 'law',
+        'bay', 'way', 'may', 'lay', 'hay', 'pay', 'ray', 'day', 'say', 'try',
+        'cry', 'dry', 'fly', 'shy', 'sky', 'spy', 'why', 'buy', 'guy', 'joy', 'toy',
+        // Additional sight words and common educational words
+        'eat', 'ate', 'ran', 'ten', 'own', 'won', 'son', 'mr', 'mrs',
+        'who', 'any', 'how', 'house', 'school', 'father', 'thought', 'whose', 'should',
       };
       
       if (!allowedShort.contains(cleanWord)) {
@@ -150,15 +171,33 @@ class ContentFilterService {
   /// Get safe replacement words when filtering
   static List<String> getSafeReplacements(int count) {
     final safeWords = [
-      'book', 'tree', 'ball', 'desk', 'chair', 'door', 'window', 'table',
-      'apple', 'orange', 'grape', 'banana', 'flower', 'garden', 'house', 'school',
-      'happy', 'smile', 'laugh', 'play', 'learn', 'read', 'write', 'draw',
-      'bird', 'fish', 'bunny', 'puppy', 'kitten', 'duck', 'frog', 'bear',
+      'cat', 'dog', 'sun', 'moon', 'star', 'tree', 'book', 'ball',
+      'fish', 'bird', 'car', 'bus', 'red', 'blue', 'green', 'big',
+      'small', 'hot', 'cold', 'happy', 'sad', 'run', 'jump', 'walk',
+      'play', 'read', 'sing', 'one', 'two', 'three', 'four', 'five', 'six',
+      'apple', 'cake', 'milk', 'egg', 'hand', 'foot', 'head', 'eye',
+      'home', 'door', 'chair', 'table', 'water', 'rain', 'snow', 'wind',
+      'mom', 'dad', 'baby', 'boy', 'girl', 'friend', 'love', 'hug',
+      'mouse', 'duck', 'frog', 'bear', 'lion', 'tiger', 'horse', 'sheep',
+      'fast', 'slow', 'tall', 'short', 'old', 'new', 'good', 'nice',
     ];
     
+    // Shuffle to avoid predictable patterns
+    final shuffledWords = List<String>.from(safeWords)..shuffle();
+    
     final replacements = <String>[];
+    final usedWords = <String>{};
+    
     for (int i = 0; i < count; i++) {
-      replacements.add(safeWords[i % safeWords.length]);
+      // Try to avoid duplicates
+      String word = shuffledWords[i % shuffledWords.length];
+      int attempts = 0;
+      while (usedWords.contains(word) && attempts < shuffledWords.length) {
+        word = shuffledWords[(i + attempts) % shuffledWords.length];
+        attempts++;
+      }
+      replacements.add(word);
+      usedWords.add(word);
     }
     return replacements;
   }

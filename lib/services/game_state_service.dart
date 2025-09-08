@@ -203,20 +203,21 @@ class GameStateService {
     
     final gameState = await FirestoreService.getGameState(gameId.toUpperCase());
     if (gameState == null) {
+      print('⚠️ SWITCH TURN: No game state found for $gameId');
       return;
     }
     
     if (playerIds.isEmpty) {
+      print('⚠️ SWITCH TURN: No playerIds provided');
       return;
     }
     
+    print('🔄 SWITCH TURN: Current player: ${gameState.currentTurnPlayerId}, PlayerIds: $playerIds');
     
-    final currentIndex = playerIds.indexOf(gameState.currentTurnPlayerId ?? '');
-    final nextIndex = (currentIndex + 1) % playerIds.length;
-    final nextPlayerId = playerIds[nextIndex];
-    
-    
+    // Use the GameStateModel's switchToNextTurn method which has the proper logic
     final updatedGameState = gameState.switchToNextTurn(playerIds);
+    
+    print('🔄 SWITCH TURN: Next player will be: ${updatedGameState.currentTurnPlayerId}');
     
     await FirestoreService.updateGameState(updatedGameState);
   }
@@ -238,7 +239,7 @@ class GameStateService {
 
   // Missing methods needed by multiplayer screen (simplified for local storage)
   
-  static Future<void> startPronunciationAttemptAndSwitchTurn({
+  static Future<void> startPronunciationAttempt({
     required String gameId,
     required String playerId,
     required String playerName,
@@ -284,10 +285,13 @@ class GameStateService {
     required List<String> playerIds, // Add playerIds parameter for turn switching
   }) async {
     try {
+      print('🎯 APPROVE: Switching turns with playerIds: $playerIds');
       
       // Get current game state
       final gameState = await getGameState(gameId);
       if (gameState == null) return;
+      
+      print('🎯 APPROVE: Current turn player: ${gameState.currentTurnPlayerId}');
       
       // Get the pronunciation attempt
       final pronunciationAttempt = gameState.pendingPronunciations[cellKey];
@@ -329,7 +333,9 @@ class GameStateService {
       await FirestoreService.updateGameState(updatedState);
       
       // Switch to next turn after approval
+      print('🎯 APPROVE: About to switch to next turn');
       await switchToNextTurn(gameId: gameId, playerIds: playerIds);
+      print('🎯 APPROVE: Turn switching completed');
     } catch (e) {
       rethrow;
     }
@@ -386,7 +392,9 @@ class GameStateService {
       await FirestoreService.updateGameState(updatedState);
       
       // Switch to next turn after rejection
+      print('🎯 REJECT: About to switch to next turn');
       await switchToNextTurn(gameId: gameId, playerIds: playerIds);
+      print('🎯 REJECT: Turn switching completed');
     } catch (e) {
       rethrow;
     }

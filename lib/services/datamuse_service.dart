@@ -268,71 +268,35 @@ class DatamuseService {
       // Build high-quality word lists dynamically from Datamuse with smart patterns
       List<String> phoneticWords = [];
       
-      if (lowerSound.contains('short a')) {
-        // Short 'a' patterns: CVC with 'a' in middle
-        phoneticWords = await _buildPhonicsListFromDatamuse(
-          ['?at', '?ad', '?an', '?am', '?ap', '?ag', '?ab', '?ack', '?and', '?amp'],
-          maxWords: 150
-        );
-      } else if (lowerSound.contains('short e')) {
-        // Short 'e' patterns
-        phoneticWords = await _buildPhonicsListFromDatamuse(
-          ['?ed', '?et', '?en', '?ell', '?ess', '?est', '?eg', '?em', '?ep', '?eck'],
-          maxWords: 150
-        );
-      } else if (lowerSound.contains('short i')) {
-        // Short 'i' patterns
-        phoneticWords = await _buildPhonicsListFromDatamuse(
-          ['?it', '?ig', '?in', '?ip', '?ick', '?ill', '?im', '?id', '?ish', '?ing'],
-          maxWords: 150
-        );
-      } else if (lowerSound.contains('short o')) {
-        // Short 'o' patterns
-        phoneticWords = await _buildPhonicsListFromDatamuse(
-          ['?ot', '?op', '?og', '?ock', '?ob', '?od', '?om', '?oss', '?ong', '?ox'],
-          maxWords: 150
-        );
-      } else if (lowerSound.contains('short u')) {
-        // Short 'u' patterns
-        phoneticWords = await _buildPhonicsListFromDatamuse(
-          ['?ut', '?un', '?up', '?ug', '?uck', '?ub', '?um', '?ump', '?ust', '?uff'],
-          maxWords: 150
-        );
-      } else if (lowerSound.contains('long a')) {
-        // Long 'a' patterns: a_e, ai, ay
-        phoneticWords = await _buildPhonicsListFromDatamuse(
-          ['?ake', '?ame', '?ate', '?ave', '?ade', '?ane', '?ace', '?ay', '?ain', '?ail'],
-          maxWords: 150
-        );
-      } else if (lowerSound.contains('long e')) {
-        // Long 'e' patterns: ee, ea, e_e
-        phoneticWords = await _buildPhonicsListFromDatamuse(
-          ['?ee', '?eet', '?een', '?eep', '?eed', '?ea', '?ead', '?ean', '?each', '?eam'],
-          maxWords: 150
-        );
-      } else if (lowerSound.contains('long i')) {
-        // Long 'i' patterns: i_e, igh, ie, y
-        phoneticWords = await _buildPhonicsListFromDatamuse(
-          ['?ike', '?ine', '?ime', '?ite', '?ide', '?ice', '?ight', '?y', '?ie', '?ire'],
-          maxWords: 150
-        );
-      } else if (lowerSound.contains('long o')) {
-        // Long 'o' patterns: o_e, oa, ow
-        phoneticWords = await _buildPhonicsListFromDatamuse(
-          ['?oke', '?one', '?ope', '?ose', '?ome', '?oat', '?oad', '?ow', '?own', '?old'],
-          maxWords: 150
-        );
-      } else if (lowerSound.contains('long u')) {
-        // Long 'u' patterns: u_e, ue, ew
-        phoneticWords = await _buildPhonicsListFromDatamuse(
-          ['?ute', '?ube', '?une', '?use', '?ue', '?ew', '?ool', '?oom', '?oon', '?oot'],
-          maxWords: 150
-        );
-      }
-      
-      // If we didn't get enough words from Datamuse, use fallback hardcoded lists
-      if (phoneticWords.length < 20) {
-        print('⚠️ Datamuse returned only ${phoneticWords.length} words, using fallback lists');
+      if (lowerSound.contains('short a') || lowerSound.contains('soft a')) {
+        // /æ/ sound - use CURATED LISTS ONLY, no Datamuse for vowel sounds
+        phoneticWords = _getFallbackPhonicsWords(lowerSound);
+      } else if (lowerSound.contains('short e') || lowerSound.contains('soft e')) {
+        // /ɛ/ sound - use CURATED LISTS ONLY
+        phoneticWords = _getFallbackPhonicsWords(lowerSound);
+      } else if (lowerSound.contains('short i') || lowerSound.contains('soft i')) {
+        // /ɪ/ sound - use CURATED LISTS ONLY
+        phoneticWords = _getFallbackPhonicsWords(lowerSound);
+      } else if (lowerSound.contains('short o') || lowerSound.contains('soft o')) {
+        // /ɑ/ sound - use CURATED LISTS ONLY
+        phoneticWords = _getFallbackPhonicsWords(lowerSound);
+      } else if (lowerSound.contains('short u') || lowerSound.contains('soft u')) {
+        // /ʌ/ sound - use CURATED LISTS ONLY
+        phoneticWords = _getFallbackPhonicsWords(lowerSound);
+      } else if (lowerSound.contains('long a') || lowerSound.contains('hard a')) {
+        // /eɪ/ sound - use CURATED LISTS ONLY
+        phoneticWords = _getFallbackPhonicsWords(lowerSound);
+      } else if (lowerSound.contains('long e') || lowerSound.contains('hard e')) {
+        // /i/ sound - use CURATED LISTS ONLY
+        phoneticWords = _getFallbackPhonicsWords(lowerSound);
+      } else if (lowerSound.contains('long i') || lowerSound.contains('hard i')) {
+        // /aɪ/ sound - use CURATED LISTS ONLY
+        phoneticWords = _getFallbackPhonicsWords(lowerSound);
+      } else if (lowerSound.contains('long o') || lowerSound.contains('hard o')) {
+        // /oʊ/ sound - use CURATED LISTS ONLY
+        phoneticWords = _getFallbackPhonicsWords(lowerSound);
+      } else if (lowerSound.contains('long u') || lowerSound.contains('hard u')) {
+        // /u/ sound - use CURATED LISTS ONLY
         phoneticWords = _getFallbackPhonicsWords(lowerSound);
       }
       
@@ -355,28 +319,144 @@ class DatamuseService {
     }
   }
   
-  /// Fallback hardcoded lists when Datamuse doesn't return enough words
+  /// Fallback phonetically accurate lists when Datamuse doesn't return enough words
+  /// These lists are CURATED to contain ONLY words with the correct phonetic sound
   static List<String> _getFallbackPhonicsWords(String lowerSound) {
-    if (lowerSound.contains('short a')) {
-      return ['cat', 'bat', 'hat', 'mat', 'rat', 'sat', 'pat', 'fat', 'can', 'man', 'ran', 'pan', 'fan', 'tan', 'van', 'bad', 'dad', 'had', 'mad', 'sad', 'bag', 'tag', 'nap', 'cap', 'map', 'tap', 'lap', 'gap'];
-    } else if (lowerSound.contains('short e')) {
-      return ['bed', 'red', 'fed', 'wed', 'net', 'bet', 'get', 'let', 'met', 'pet', 'set', 'wet', 'yet', 'pen', 'ten', 'men', 'hen', 'den', 'bell', 'tell', 'well', 'fell', 'sell', 'yell'];
-    } else if (lowerSound.contains('short i')) {
-      return ['bit', 'hit', 'sit', 'fit', 'kit', 'lit', 'pit', 'big', 'dig', 'fig', 'pig', 'wig', 'win', 'pin', 'tin', 'bin', 'fin', 'kick', 'lick', 'pick', 'sick', 'tick'];
-    } else if (lowerSound.contains('short o')) {
-      return ['hot', 'pot', 'dot', 'got', 'lot', 'not', 'cot', 'jot', 'rot', 'box', 'fox', 'top', 'hop', 'pop', 'cop', 'mop', 'shop', 'stop', 'drop', 'chop', 'dog', 'log', 'fog', 'hog', 'jog'];
-    } else if (lowerSound.contains('short u')) {
-      return ['cut', 'but', 'hut', 'nut', 'shut', 'run', 'sun', 'fun', 'bun', 'gun', 'bus', 'cup', 'pup', 'up', 'tub', 'rub', 'hub', 'duck', 'luck', 'buck', 'stuck', 'truck'];
-    } else if (lowerSound.contains('long a')) {
-      return ['cake', 'make', 'take', 'lake', 'bake', 'wake', 'game', 'name', 'same', 'came', 'tape', 'cape', 'gate', 'late', 'date', 'rate', 'brave', 'gave', 'save', 'wave', 'day', 'way', 'say', 'may', 'play'];
-    } else if (lowerSound.contains('long e')) {
-      return ['tree', 'free', 'three', 'see', 'bee', 'knee', 'she', 'he', 'we', 'me', 'be', 'feet', 'meet', 'sweet', 'green', 'seen', 'been', 'clean', 'mean', 'bean', 'dream', 'team'];
-    } else if (lowerSound.contains('long i')) {
-      return ['bike', 'like', 'hike', 'time', 'dime', 'lime', 'nine', 'line', 'mine', 'fine', 'pine', 'white', 'bite', 'kite', 'fire', 'tire', 'wire', 'pie', 'tie', 'lie', 'fly', 'try', 'dry', 'cry', 'sky'];
-    } else if (lowerSound.contains('long o')) {
-      return ['boat', 'coat', 'goat', 'road', 'toad', 'soap', 'rope', 'hope', 'note', 'vote', 'home', 'bone', 'cone', 'tone', 'nose', 'rose', 'slow', 'snow', 'grow', 'show', 'know', 'blow', 'flow'];
-    } else if (lowerSound.contains('long u')) {
-      return ['cute', 'tube', 'cube', 'huge', 'tune', 'blue', 'glue', 'true', 'due', 'sue', 'clue', 'flew', 'grew', 'threw', 'knew', 'blew', 'drew', 'crew', 'chew', 'few', 'new'];
+    if (lowerSound.contains('short a') || lowerSound.contains('soft a')) {
+      // /æ/ sound ONLY - EXPANDED list of short A words (NOT sky, cloud, pink, orange!)
+      return [
+        // CVC patterns with /æ/
+        'cat', 'bat', 'hat', 'mat', 'rat', 'sat', 'pat', 'fat', 'vat', 'chat', 'flat', 'that',
+        'can', 'man', 'ran', 'pan', 'fan', 'tan', 'ban', 'van', 'plan', 'than', 'scan', 'span',
+        'bad', 'dad', 'had', 'mad', 'sad', 'pad', 'lad', 'glad',
+        'bag', 'tag', 'rag', 'lag', 'sag', 'wag', 'flag', 'drag',
+        'cap', 'map', 'tap', 'lap', 'gap', 'nap', 'sap', 'clap', 'snap', 'trap',
+        'cab', 'tab', 'lab', 'nab', 'jab', 'crab', 'grab',
+        'ham', 'jam', 'ram', 'dam', 'yam', 'clam', 'gram',
+        'ax', 'wax', 'tax', 'max'
+      ];
+    } else if (lowerSound.contains('short e') || lowerSound.contains('soft e')) {
+      // /ɛ/ sound ONLY - EXPANDED list of short E words
+      return [
+        'bed', 'red', 'fed', 'wed', 'led', 'shed', 'sled',
+        'net', 'bet', 'get', 'let', 'met', 'pet', 'set', 'wet', 'yet', 'jet', 'vet',
+        'pen', 'ten', 'men', 'hen', 'den', 'when', 'then',
+        'leg', 'beg', 'peg', 'keg', 'egg',
+        'web', 'deb',
+        'gem', 'hem', 'stem', 'them',
+        'bell', 'cell', 'fell', 'hell', 'sell', 'tell', 'well', 'yell',
+        'end', 'bend', 'lend', 'mend', 'send', 'tend'
+      ];
+    } else if (lowerSound.contains('short i') || lowerSound.contains('soft i')) {
+      // /ɪ/ sound ONLY - EXPANDED list of short I words
+      return [
+        'bit', 'hit', 'sit', 'fit', 'kit', 'lit', 'pit', 'wit', 'quit', 'spit', 'knit', 'grit',
+        'big', 'dig', 'fig', 'pig', 'wig', 'jig', 'rig',
+        'win', 'pin', 'tin', 'bin', 'fin', 'chin', 'thin', 'skin', 'spin', 'grin', 'twin', 'shin',
+        'kid', 'lid', 'bid', 'did', 'hid', 'rid', 'skid',
+        'tip', 'zip', 'rip', 'hip', 'lip', 'dip', 'ship', 'chip', 'skip', 'trip',
+        'rib', 'bib',
+        'rim', 'dim', 'him', 'tim', 'swim', 'slim', 'trim',
+        'six', 'mix', 'fix'
+      ];
+    } else if (lowerSound.contains('short o') || lowerSound.contains('soft o')) {
+      // /ɑ/ sound ONLY - EXPANDED list of short O words (NOT "caught" type words!)
+      return [
+        'hot', 'pot', 'dot', 'lot', 'not', 'cot', 'jot', 'rot', 'tot', 'got',
+        'top', 'hop', 'pop', 'cop', 'mop', 'shop', 'stop', 'drop', 'chop',
+        'dog', 'log', 'hog', 'jog', 'fog', 'bog', 'cog', 'frog',
+        'job', 'rob', 'mob', 'sob', 'bob', 'glob',
+        'nod', 'rod', 'cod', 'sod', 'pod',
+        'mom', 'tom', 'bomb', 'from',
+        'box', 'fox', 'ox', 'sox'
+      ];
+    } else if (lowerSound.contains('short u') || lowerSound.contains('soft u')) {
+      // /ʌ/ sound ONLY - EXPANDED list of short U words
+      return [
+        'cut', 'but', 'hut', 'nut', 'shut', 'gut', 'jut', 'rut',
+        'run', 'sun', 'fun', 'bun', 'gun', 'nun', 'pun', 'spun', 'stun',
+        'cup', 'pup', 'up', 'sup',
+        'bug', 'hug', 'jug', 'mug', 'rug', 'tug', 'dug', 'pug',
+        'mud', 'bud', 'cud', 'dud', 'thud', 'stud',
+        'tub', 'rub', 'hub', 'sub', 'club', 'grub',
+        'gum', 'hum', 'sum', 'rum', 'drum', 'plum', 'chum',
+        'bus', 'plus'
+      ];
+    } else if (lowerSound.contains('long a') || lowerSound.contains('hard a')) {
+      // /eɪ/ sound ONLY - EXPANDED list of long A words
+      return [
+        // Magic e pattern
+        'cake', 'make', 'take', 'lake', 'bake', 'wake', 'fake', 'rake', 'snake', 'shake',
+        'game', 'name', 'same', 'came', 'fame', 'tame', 'frame', 'blame', 'flame',
+        'tape', 'cape', 'grape', 'shape',
+        'gate', 'late', 'date', 'rate', 'hate', 'fate', 'state', 'plate',
+        'cave', 'wave', 'gave', 'save', 'brave', 'shave',
+        // AI pattern
+        'rain', 'main', 'pain', 'gain', 'train', 'brain', 'chain', 'plain', 'stain',
+        'wait', 'bait', 'trait',
+        // AY pattern
+        'day', 'way', 'say', 'may', 'bay', 'hay', 'lay', 'pay', 'play', 'stay', 'pray', 'gray', 'clay', 'tray'
+      ];
+    } else if (lowerSound.contains('long e') || lowerSound.contains('hard e')) {
+      // /i/ sound ONLY - EXPANDED list of long E words
+      return [
+        // EE pattern
+        'see', 'bee', 'tree', 'free', 'knee', 'three', 'agree', 'flee',
+        'feet', 'meet', 'greet', 'sweet', 'sheet', 'steel', 'wheel',
+        'green', 'seen', 'been', 'queen', 'screen', 'teen',
+        'keep', 'deep', 'sleep', 'sheep', 'creep', 'steep', 'sweep',
+        // EA pattern
+        'read', 'eat', 'meat', 'beat', 'heat', 'seat', 'neat', 'treat',
+        'clean', 'mean', 'bean', 'lean', 'dream', 'cream', 'steam', 'team',
+        'beach', 'teach', 'reach', 'peach'
+      ];
+    } else if (lowerSound.contains('long i') || lowerSound.contains('hard i')) {
+      // /aɪ/ sound ONLY - EXPANDED list of long I words
+      return [
+        // Magic e pattern
+        'bike', 'like', 'hike', 'mike', 'strike',
+        'time', 'dime', 'lime', 'chime', 'crime', 'grime', 'prime',
+        'nine', 'line', 'mine', 'fine', 'pine', 'wine', 'dine', 'shine', 'spine', 'whine',
+        'bite', 'kite', 'site', 'white', 'quite', 'write',
+        'hide', 'ride', 'side', 'wide', 'slide', 'bride', 'guide', 'pride',
+        // IGH pattern
+        'night', 'light', 'right', 'bright', 'sight', 'fight', 'might', 'tight', 'flight',
+        // Y pattern
+        'fly', 'try', 'dry', 'cry', 'sky', 'my', 'by', 'shy', 'spy', 'fry'
+      ];
+    } else if (lowerSound.contains('long o') || lowerSound.contains('hard o')) {
+      // /oʊ/ sound ONLY - EXPANDED list of long O words
+      return [
+        // OA pattern
+        'boat', 'coat', 'goat', 'float', 'throat',
+        'road', 'toad', 'load',
+        'soap', 'loaf',
+        // Magic e pattern
+        'hope', 'rope', 'slope', 'scope',
+        'note', 'vote', 'quote', 'wrote',
+        'home', 'dome', 'come', 'some',
+        'bone', 'cone', 'tone', 'phone', 'stone', 'throne', 'alone',
+        'nose', 'rose', 'hose', 'chose', 'close', 'those',
+        'hole', 'pole', 'role', 'whole', 'stole',
+        // OW pattern
+        'go', 'no', 'so', 'pro',
+        'show', 'snow', 'grow', 'slow', 'blow', 'flow', 'glow', 'throw', 'know'
+      ];
+    } else if (lowerSound.contains('long u') || lowerSound.contains('hard u')) {
+      // /u/ sound ONLY - EXPANDED list of long U words
+      return [
+        // OO pattern (long u)
+        'moon', 'soon', 'noon', 'spoon', 'cartoon',
+        'room', 'boom', 'zoom', 'broom', 'gloom',
+        'cool', 'pool', 'tool', 'school', 'stool', 'drool',
+        'food', 'mood', 'good', 'hood', 'wood', 'stood',
+        'book', 'look', 'took', 'cook', 'hook', 'brook', 'shook',
+        'boot', 'root', 'shoot', 'scoot',
+        // UE pattern
+        'blue', 'true', 'glue', 'clue', 'due', 'flue',
+        // EW pattern
+        'new', 'few', 'grew', 'drew', 'knew', 'flew', 'threw', 'crew', 'chew', 'stew'
+      ];
     }
     return [];
   }
@@ -633,7 +713,7 @@ class DatamuseService {
     final lowerPrompt = prompt.toLowerCase();
     
     // Check for combined requirements (sound + length)
-    bool hasSound = lowerPrompt.contains('sound') || lowerPrompt.contains('long') || lowerPrompt.contains('short');
+    bool hasSound = lowerPrompt.contains('sound') || lowerPrompt.contains('long') || lowerPrompt.contains('short') || lowerPrompt.contains('soft') || lowerPrompt.contains('hard');
     bool hasLength = RegExp(r'(\d+)\s*letter').hasMatch(lowerPrompt);
     bool hasEnding = RegExp(r'(?:ending|end|ends|that end) (?:in|with)').hasMatch(lowerPrompt);
     bool hasRhyme = RegExp(r'rhym\w*').hasMatch(lowerPrompt);
@@ -777,6 +857,8 @@ class DatamuseService {
            lowerPrompt.contains('sound') ||
            lowerPrompt.contains('long') ||
            lowerPrompt.contains('short') ||
+           lowerPrompt.contains('soft') ||
+           lowerPrompt.contains('hard') ||
            lowerPrompt.contains('start') ||
            extractTopic(prompt) != null;
   }
@@ -793,42 +875,28 @@ class DatamuseService {
     print('📚 Datamuse: Added ${curatedWords.length} curated words for ending "$ending"');
     
     try {
-      // Method 1: Direct pattern matching if we need more words
+      // PHONETICALLY CORRECT METHOD: Instead of using spelling patterns,
+      // we'll use specific phonetic patterns that actually sound right
       if (allWords.length < targetCount) {
-        final directWords = await getWordsByPattern('*$ending', maxWords: 100);
-        allWords.addAll(directWords);
-        print('📚 Datamuse: Direct pattern *$ending found ${directWords.length} additional words');
+        final phoneticWords = await _getPhoneticWordsForEnding(ending);
+        allWords.addAll(phoneticWords);
+        print('📚 Datamuse: Phonetic search for "$ending" found ${phoneticWords.length} words');
       }
       
-      // Method 2: Try different lengths systematically
-      for (int length = 3; length <= 6; length++) {
-        if (allWords.length >= targetCount) break;
-        
-        final pattern = '${'?' * (length - ending.length)}$ending';
-        if (length > ending.length) {
-          final lengthWords = await getWordsByPattern(pattern, maxWords: 50);
-          allWords.addAll(lengthWords);
-          print('📚 Datamuse: Length $length pattern $pattern found ${lengthWords.length} words');
-        }
-      }
-      
-      // Method 3: If still not enough, try frequency-based fetching
+      // Method 3: Final fallback - use direct spelling pattern but filter phonetically
       if (allWords.length < targetCount) {
-        print('📚 Datamuse: Trying frequency-based approach for ending "$ending"');
-        final uri = Uri.parse('$_baseUrl?sp=*$ending&md=f&max=200');
-        final response = await http.get(uri);
+        print('📚 Datamuse: Trying filtered spelling pattern as final fallback for ending "$ending"');
+        final spellingWords = await getWordsByPattern('*$ending', maxWords: 200);
         
-        if (response.statusCode == 200) {
-          final List<dynamic> data = json.decode(response.body);
-          final frequentWords = data
-              .where((item) => (item['tags']?.toString().contains('f:') ?? false))
-              .map((item) => item['word'].toString().toLowerCase())
-              .where((word) => word.length <= 6) // Keep words short for children
-              .where((word) => !word.contains('-') && !word.contains(' ') && !word.contains("'"))
-              .where((word) => ContentFilterService.isWordSafe(word))
-              .toList();
-          allWords.addAll(frequentWords);
-          print('📚 Datamuse: Frequency-based search added ${frequentWords.length} more words');
+        // Filter to only words that are phonetically similar to our curated words
+        final curatedExamples = _getCuratedWordsForEnding(ending);
+        if (curatedExamples.isNotEmpty) {
+          final phoneticFiltered = spellingWords.where((word) => 
+            _isPhoneticallyCompatible(word, ending, curatedExamples)
+          ).toList();
+          
+          allWords.addAll(phoneticFiltered);
+          print('📚 Datamuse: Spelling pattern filtered to ${phoneticFiltered.length} phonetically compatible words');
         }
       }
       
@@ -845,37 +913,574 @@ class DatamuseService {
     return finalWords;
   }
 
-  /// Get curated child-appropriate words for specific endings
-  static List<String> _getCuratedWordsForEnding(String ending) {
+
+  /// Get phonetically correct words for ending using Datamuse rhyme API
+  /// This uses rhyming to find words that actually SOUND like the ending
+  static Future<List<String>> _getPhoneticWordsForEnding(String ending) async {
+    final Set<String> phoneticWords = <String>{};
+    
+    try {
+      // Use a known word with this ending as a rhyme seed
+      String? seedWord = _getSeedWordForEnding(ending);
+      
+      if (seedWord != null) {
+        // Get rhyming words - these will have the same phonetic ending
+        final rhymeUri = Uri.parse('$_baseUrl?rel_rhy=$seedWord&max=100');
+        final response = await http.get(rhymeUri);
+        
+        if (response.statusCode == 200) {
+          final List<dynamic> data = json.decode(response.body);
+          final rhymeWords = data
+              .map((item) => item['word'].toString().toLowerCase())
+              .where((word) => word.length >= 2 && word.length <= 6)
+              .where((word) => !word.contains('-') && !word.contains(' ') && !word.contains("'"))
+              .where((word) => ContentFilterService.isWordSafe(word))
+              .toList();
+          
+          phoneticWords.addAll(rhymeWords);
+          print('📚 Datamuse: Rhyme search with "$seedWord" found ${rhymeWords.length} phonetic matches');
+        }
+      }
+      
+      // Also try multiple seed words if we have them
+      final altSeeds = _getAlternateSeedWords(ending);
+      for (final altSeed in altSeeds) {
+        if (phoneticWords.length >= 50) break;
+        
+        final rhymeUri = Uri.parse('$_baseUrl?rel_rhy=$altSeed&max=50');
+        final response = await http.get(rhymeUri);
+        
+        if (response.statusCode == 200) {
+          final List<dynamic> data = json.decode(response.body);
+          final rhymeWords = data
+              .map((item) => item['word'].toString().toLowerCase())
+              .where((word) => word.length >= 2 && word.length <= 6)
+              .where((word) => !word.contains('-') && !word.contains(' ') && !word.contains("'"))
+              .where((word) => ContentFilterService.isWordSafe(word))
+              .toList();
+          
+          phoneticWords.addAll(rhymeWords);
+        }
+      }
+      
+    } catch (e) {
+      print('❌ Datamuse: Error in phonetic search for "$ending": $e');
+    }
+    
+    return phoneticWords.toList();
+  }
+  
+  /// Get a reliable seed word that definitely has this phonetic ending
+  static String? _getSeedWordForEnding(String ending) {
     switch (ending.toLowerCase()) {
-      case 'un':
-        return ['run', 'sun', 'fun', 'bun', 'gun', 'nun', 'pun', 'dun', 'spun', 'stun', 'shun'];
+      // VOWEL + T endings
+      case 'at': return 'cat';  // /æt/ sound
+      case 'it': return 'sit';  // /ɪt/ sound  
+      case 'ot': return 'pot';  // /ɑt/ sound
+      case 'ut': return 'cut';  // /ʌt/ sound
+      case 'et': return 'bet';  // /ɛt/ sound
+      
+      // VOWEL + N endings
+      case 'an': return 'can';  // /æn/ sound
+      case 'in': return 'win';  // /ɪn/ sound
+      case 'on': return 'con';  // /ɑn/ sound (rare, most -on is /ʌn/)
+      case 'un': return 'fun';  // /ʌn/ sound
+      case 'en': return 'pen';  // /ɛn/ sound
+      
+      // VOWEL + P endings
+      case 'ap': return 'cap';  // /æp/ sound
+      case 'ip': return 'tip';  // /ɪp/ sound
+      case 'op': return 'top';  // /ɑp/ sound
+      case 'up': return 'cup';  // /ʌp/ sound
+      case 'ep': return 'step'; // /ɛp/ sound
+      
+      // VOWEL + G endings
+      case 'ag': return 'bag';  // /æg/ sound
+      case 'ig': return 'big';  // /ɪg/ sound
+      case 'og': return 'dog';  // /ɑg/ sound
+      case 'ug': return 'bug';  // /ʌg/ sound
+      case 'eg': return 'leg';  // /ɛg/ sound
+      
+      // VOWEL + D endings
+      case 'ad': return 'bad';  // /æd/ sound
+      case 'id': return 'kid';  // /ɪd/ sound
+      case 'od': return 'nod';  // /ɑd/ sound
+      case 'ud': return 'mud';  // /ʌd/ sound
+      case 'ed': return 'bed';  // /ɛd/ sound
+      
+      // VOWEL + B endings
+      case 'ab': return 'cab';  // /æb/ sound
+      case 'ib': return 'rib';  // /ɪb/ sound
+      case 'ob': return 'job';  // /ɑb/ sound
+      case 'ub': return 'tub';  // /ʌb/ sound
+      case 'eb': return 'web';  // /ɛb/ sound
+      
+      // VOWEL + M endings
+      case 'am': return 'ham';  // /æm/ sound
+      case 'im': return 'rim';  // /ɪm/ sound
+      case 'om': return 'mom';  // /ɑm/ sound
+      case 'um': return 'gum';  // /ʌm/ sound
+      case 'em': return 'gem';  // /ɛm/ sound
+      
+      default: return null;
+    }
+  }
+  
+  /// Get alternate seed words for more phonetic matches
+  static List<String> _getAlternateSeedWords(String ending) {
+    switch (ending.toLowerCase()) {
+      // VOWEL + T endings
+      case 'at': return ['bat', 'hat', 'mat', 'rat', 'sat', 'pat', 'fat'];
+      case 'it': return ['bit', 'hit', 'fit', 'kit', 'lit', 'pit', 'wit'];
+      case 'ot': return ['pot', 'dot', 'cot', 'lot', 'hot', 'not', 'jot'];
+      case 'ut': return ['but', 'hut', 'nut', 'shut', 'gut', 'rut'];
+      case 'et': return ['get', 'let', 'met', 'pet', 'set', 'wet', 'net'];
+      
+      // VOWEL + N endings
+      case 'an': return ['man', 'ran', 'pan', 'fan', 'tan', 'van', 'ban'];
+      case 'in': return ['pin', 'tin', 'bin', 'fin', 'chin', 'thin', 'skin'];
+      case 'on': return ['con']; // most -on words are /ʌn/ not /ɑn/
+      case 'un': return ['run', 'sun', 'bun', 'gun', 'nun', 'pun'];
+      case 'en': return ['pen', 'ten', 'men', 'hen', 'den', 'when'];
+      
+      // VOWEL + P endings
+      case 'ap': return ['cap', 'map', 'tap', 'lap', 'gap', 'nap', 'sap'];
+      case 'ip': return ['tip', 'zip', 'rip', 'hip', 'lip', 'dip', 'ship'];
+      case 'op': return ['top', 'hop', 'pop', 'cop', 'mop', 'shop', 'stop'];
+      case 'up': return ['cup', 'pup', 'sup'];
+      case 'ep': return ['step', 'prep'];
+      
+      // VOWEL + G endings
+      case 'ag': return ['bag', 'tag', 'rag', 'lag', 'sag', 'wag'];
+      case 'ig': return ['big', 'dig', 'fig', 'pig', 'wig', 'jig'];
+      case 'og': return ['dog', 'log', 'fog', 'hog', 'jog', 'clog'];
+      case 'ug': return ['bug', 'hug', 'mug', 'rug', 'tug', 'jug'];
+      case 'eg': return ['leg', 'beg', 'peg', 'keg'];
+      
+      // VOWEL + D endings
+      case 'ad': return ['bad', 'dad', 'had', 'mad', 'sad', 'pad'];
+      case 'id': return ['kid', 'lid', 'bid', 'did'];
+      case 'od': return ['nod', 'rod', 'cod', 'sod'];
+      case 'ud': return ['mud', 'bud', 'cud', 'dud', 'thud'];
+      case 'ed': return ['bed', 'red', 'led', 'wed', 'fed'];
+      
+      // VOWEL + B endings
+      case 'ab': return ['cab', 'tab', 'lab', 'nab', 'jab'];
+      case 'ib': return ['rib', 'bib'];
+      case 'ob': return ['job', 'rob', 'mob', 'sob', 'bob'];
+      case 'ub': return ['tub', 'rub', 'hub', 'sub', 'club'];
+      case 'eb': return ['web', 'deb'];
+      
+      // VOWEL + M endings
+      case 'am': return ['ham', 'jam', 'ram', 'dam', 'yam'];
+      case 'im': return ['rim', 'dim', 'him', 'tim', 'swim'];
+      case 'om': return ['mom', 'tom', 'bomb'];
+      case 'um': return ['gum', 'hum', 'sum', 'rum', 'drum'];
+      case 'em': return ['gem', 'hem', 'stem'];
+      
+      default: return [];
+    }
+  }
+  
+  /// Check if a word is phonetically compatible with the intended ending pattern
+  /// This filters out spelling matches that don't sound right
+  static bool _isPhoneticallyCompatible(String word, String ending, List<String> examples) {
+    final lowerWord = word.toLowerCase();
+    final lowerEnding = ending.toLowerCase();
+    
+    // Basic length check - don't allow words that are too long for children
+    if (lowerWord.length > 6) return false;
+    
+    // COMPLETE PHONETIC FILTERING FOR ALL PATTERNS
+    switch (lowerEnding) {
       case 'at':
+        // /æt/ sound: cat, bat, hat
+        if (lowerWord.endsWith('eat') || // treat, neat, great (/it/ or /eɪt/)
+            lowerWord.endsWith('oat') || // boat, coat, float (/oʊt/)
+            lowerWord.endsWith('uat') || // squat (/wɑt/)
+            lowerWord.contains('ea') ||  // sweat, threat (/ɛt/)
+            lowerWord.length > 5) {
+          return false;
+        }
+        return RegExp(r'^[bcdfghjklmnpqrstvwxyz]*[a][bcdfghjklmnpqrstvwxyz]*at$').hasMatch(lowerWord);
+        
+      case 'it':
+        // /ɪt/ sound: sit, bit, hit
+        if (lowerWord.endsWith('ait') || // wait, trait (/eɪt/)
+            lowerWord.endsWith('uit') || // fruit, suit (/ut/)
+            lowerWord.endsWith('eit') || // counterfeit (complex)
+            lowerWord.contains('igh') || // fight, light (/aɪt/)
+            lowerWord.length > 5) {
+          return false;
+        }
+        return RegExp(r'^[bcdfghjklmnpqrstvwxyz]*[i][bcdfghjklmnpqrstvwxyz]*it$').hasMatch(lowerWord);
+        
+      case 'ot':
+        // /ɑt/ sound: hot, pot, dot  
+        if (lowerWord.endsWith('oot') || // boot, root (/ut/)
+            lowerWord.endsWith('out') || // shout, scout (/aʊt/)
+            lowerWord.endsWith('aught') || // caught, bought (/ɔt/)
+            lowerWord.endsWith('ought') || // thought, brought (/ɔt/)
+            lowerWord.contains('augh') || lowerWord.contains('ough') ||
+            lowerWord.length > 4) {
+          return false;
+        }
+        return RegExp(r'^[bcdfghjklmnpqrstvwxyz]*[o][bcdfghjklmnpqrstvwxyz]*ot$').hasMatch(lowerWord);
+        
+      case 'ut':
+        // /ʌt/ sound: cut, but, hut
+        if (lowerWord.endsWith('oot') || // shoot (/ut/)
+            lowerWord.endsWith('out') || // about (/aʊt/)
+            lowerWord.contains('ough') || // drought (/aʊt/)
+            lowerWord.length > 5) {
+          return false;
+        }
+        return RegExp(r'^[bcdfghjklmnpqrstvwxyz]*[u][bcdfghjklmnpqrstvwxyz]*ut$').hasMatch(lowerWord);
+        
+      case 'et':
+        // /ɛt/ sound: bet, get, let
+        if (lowerWord.endsWith('eet') || // meet, street (/it/)
+            lowerWord.contains('ea') ||  // meat, beat (/it/)
+            lowerWord.length > 5) {
+          return false;
+        }
+        return RegExp(r'^[bcdfghjklmnpqrstvwxyz]*[e][bcdfghjklmnpqrstvwxyz]*et$').hasMatch(lowerWord);
+        
+      case 'an':
+        // /æn/ sound: can, man, ran
+        if (lowerWord.contains('ea') ||  // bean, mean (/in/)
+            lowerWord.endsWith('oan') || // loan (/oʊn/)
+            lowerWord.length > 5) {
+          return false;
+        }
+        return RegExp(r'^[bcdfghjklmnpqrstvwxyz]*[a][bcdfghjklmnpqrstvwxyz]*an$').hasMatch(lowerWord);
+        
+      case 'in':
+        // /ɪn/ sound: pin, win, tin
+        if (lowerWord.endsWith('ain') || // rain, main (/eɪn/)
+            lowerWord.endsWith('oin') || // coin, join (/ɔɪn/)
+            lowerWord.contains('igh') || // sign (/aɪn/)
+            lowerWord.length > 5) {
+          return false;
+        }
+        return RegExp(r'^[bcdfghjklmnpqrstvwxyz]*[i][bcdfghjklmnpqrstvwxyz]*in$').hasMatch(lowerWord);
+        
+      case 'on':
+        // /ɑn/ sound: con (NOTE: most -on words are actually /ʌn/ like "son")
+        if (lowerWord.endsWith('oon') || // moon, spoon (/un/)
+            lowerWord.endsWith('own') || // down, town (/aʊn/)
+            lowerWord.length > 4) {
+          return false;
+        }
+        return true;
+        
+      case 'un':
+        // /ʌn/ sound: fun, run, sun
+        if (lowerWord.endsWith('oun') || // noun, found (/aʊn/)
+            lowerWord.endsWith('oon') || // moon, soon (/un/)
+            lowerWord.length > 5) {
+          return false;
+        }
+        return RegExp(r'^[bcdfghjklmnpqrstvwxyz]*[u][bcdfghjklmnpqrstvwxyz]*un$').hasMatch(lowerWord);
+        
+      case 'en':
+        // /ɛn/ sound: pen, ten, men
+        if (lowerWord.contains('ea') ||  // bean, mean (/in/)
+            lowerWord.endsWith('een') || // seen, green (/in/)
+            lowerWord.length > 5) {
+          return false;
+        }
+        return RegExp(r'^[bcdfghjklmnpqrstvwxyz]*[e][bcdfghjklmnpqrstvwxyz]*en$').hasMatch(lowerWord);
+        
+      case 'ap':
+        // /æp/ sound: cap, map, tap
+        if (lowerWord.endsWith('eap') || // heap, leap (/ip/)
+            lowerWord.endsWith('oop') || // loop, hoop (/up/)
+            lowerWord.length > 5) {
+          return false;
+        }
+        return RegExp(r'^[bcdfghjklmnpqrstvwxyz]*[a][bcdfghjklmnpqrstvwxyz]*ap$').hasMatch(lowerWord);
+        
+      case 'ip':
+        // /ɪp/ sound: tip, zip, rip
+        if (lowerWord.endsWith('eep') || // deep, keep (/ip/)
+            lowerWord.endsWith('oop') || // loop, hoop (/up/)
+            lowerWord.length > 5) {
+          return false;
+        }
+        return RegExp(r'^[bcdfghjklmnpqrstvwxyz]*[i][bcdfghjklmnpqrstvwxyz]*ip$').hasMatch(lowerWord);
+        
+      case 'op':
+        // /ɑp/ sound: top, hop, pop
+        if (lowerWord.endsWith('oop') || // loop, hoop (/up/)
+            lowerWord.endsWith('eep') || // deep, keep (/ip/)
+            lowerWord.length > 4) {
+          return false;
+        }
+        return RegExp(r'^[bcdfghjklmnpqrstvwxyz]*[o][bcdfghjklmnpqrstvwxyz]*op$').hasMatch(lowerWord);
+        
+      case 'up':
+        // /ʌp/ sound: cup, pup, up
+        if (lowerWord.endsWith('oup') || // soup, group (/up/)
+            lowerWord.endsWith('eep') || // deep, keep (/ip/)
+            lowerWord.length > 5) {
+          return false;
+        }
+        return RegExp(r'^[bcdfghjklmnpqrstvwxyz]*[u][bcdfghjklmnpqrstvwxyz]*up$').hasMatch(lowerWord);
+        
+      case 'ep':
+        // /ɛp/ sound: step (rare ending)
+        if (lowerWord.endsWith('eep') || // deep, keep (/ip/)
+            lowerWord.length > 5) {
+          return false;
+        }
+        return true;
+        
+      // VOWEL + G endings
+      case 'ag':
+        // /æg/ sound: bag, tag, rag
+        return RegExp(r'^[bcdfghjklmnpqrstvwxyz]*[a][bcdfghjklmnpqrstvwxyz]*ag$').hasMatch(lowerWord) && lowerWord.length <= 5;
+      case 'ig':
+        // /ɪg/ sound: big, dig, fig
+        return RegExp(r'^[bcdfghjklmnpqrstvwxyz]*[i][bcdfghjklmnpqrstvwxyz]*ig$').hasMatch(lowerWord) && lowerWord.length <= 5;
+      case 'og':
+        // /ɑg/ sound: dog, log, fog
+        return RegExp(r'^[bcdfghjklmnpqrstvwxyz]*[o][bcdfghjklmnpqrstvwxyz]*og$').hasMatch(lowerWord) && lowerWord.length <= 5;
+      case 'ug':
+        // /ʌg/ sound: bug, hug, jug
+        return RegExp(r'^[bcdfghjklmnpqrstvwxyz]*[u][bcdfghjklmnpqrstvwxyz]*ug$').hasMatch(lowerWord) && lowerWord.length <= 5;
+      case 'eg':
+        // /ɛg/ sound: leg, beg, peg
+        return RegExp(r'^[bcdfghjklmnpqrstvwxyz]*[e][bcdfghjklmnpqrstvwxyz]*eg$').hasMatch(lowerWord) && lowerWord.length <= 5;
+        
+      // VOWEL + D endings
+      case 'ad':
+        // /æd/ sound: bad, dad, had
+        return RegExp(r'^[bcdfghjklmnpqrstvwxyz]*[a][bcdfghjklmnpqrstvwxyz]*ad$').hasMatch(lowerWord) && lowerWord.length <= 5;
+      case 'id':
+        // /ɪd/ sound: kid, lid, bid
+        return RegExp(r'^[bcdfghjklmnpqrstvwxyz]*[i][bcdfghjklmnpqrstvwxyz]*id$').hasMatch(lowerWord) && lowerWord.length <= 5;
+      case 'od':
+        // /ɑd/ sound: nod, rod, cod
+        return RegExp(r'^[bcdfghjklmnpqrstvwxyz]*[o][bcdfghjklmnpqrstvwxyz]*od$').hasMatch(lowerWord) && lowerWord.length <= 5;
+      case 'ud':
+        // /ʌd/ sound: mud, bud, cud
+        return RegExp(r'^[bcdfghjklmnpqrstvwxyz]*[u][bcdfghjklmnpqrstvwxyz]*ud$').hasMatch(lowerWord) && lowerWord.length <= 5;
+      case 'ed':
+        // /ɛd/ sound: bed, red, led (NOT "used", "moved" which have /d/ sound)
+        if (lowerWord.endsWith('eed') || // need, feed (/id/)
+            lowerWord.endsWith('ood') || // good, food (/ud/)
+            lowerWord.endsWith('ised') || lowerWord.endsWith('used') || // past tense /d/
+            lowerWord.length > 5) {
+          return false;
+        }
+        return RegExp(r'^[bcdfghjklmnpqrstvwxyz]*[e][bcdfghjklmnpqrstvwxyz]*ed$').hasMatch(lowerWord);
+        
+      // VOWEL + B endings
+      case 'ab':
+        // /æb/ sound: cab, tab, lab
+        return RegExp(r'^[bcdfghjklmnpqrstvwxyz]*[a][bcdfghjklmnpqrstvwxyz]*ab$').hasMatch(lowerWord) && lowerWord.length <= 5;
+      case 'ib':
+        // /ɪb/ sound: rib, bib
+        return RegExp(r'^[bcdfghjklmnpqrstvwxyz]*[i][bcdfghjklmnpqrstvwxyz]*ib$').hasMatch(lowerWord) && lowerWord.length <= 5;
+      case 'ob':
+        // /ɑb/ sound: job, rob, mob
+        return RegExp(r'^[bcdfghjklmnpqrstvwxyz]*[o][bcdfghjklmnpqrstvwxyz]*ob$').hasMatch(lowerWord) && lowerWord.length <= 5;
+      case 'ub':
+        // /ʌb/ sound: tub, rub, hub
+        return RegExp(r'^[bcdfghjklmnpqrstvwxyz]*[u][bcdfghjklmnpqrstvwxyz]*ub$').hasMatch(lowerWord) && lowerWord.length <= 5;
+      case 'eb':
+        // /ɛb/ sound: web, deb
+        return RegExp(r'^[bcdfghjklmnpqrstvwxyz]*[e][bcdfghjklmnpqrstvwxyz]*eb$').hasMatch(lowerWord) && lowerWord.length <= 5;
+        
+      // VOWEL + M endings
+      case 'am':
+        // /æm/ sound: ham, jam, ram
+        return RegExp(r'^[bcdfghjklmnpqrstvwxyz]*[a][bcdfghjklmnpqrstvwxyz]*am$').hasMatch(lowerWord) && lowerWord.length <= 5;
+      case 'im':
+        // /ɪm/ sound: rim, dim, him
+        return RegExp(r'^[bcdfghjklmnpqrstvwxyz]*[i][bcdfghjklmnpqrstvwxyz]*im$').hasMatch(lowerWord) && lowerWord.length <= 5;
+      case 'om':
+        // /ɑm/ sound: mom, tom, bomb
+        return RegExp(r'^[bcdfghjklmnpqrstvwxyz]*[o][bcdfghjklmnpqrstvwxyz]*om$').hasMatch(lowerWord) && lowerWord.length <= 5;
+      case 'um':
+        // /ʌm/ sound: gum, hum, sum
+        return RegExp(r'^[bcdfghjklmnpqrstvwxyz]*[u][bcdfghjklmnpqrstvwxyz]*um$').hasMatch(lowerWord) && lowerWord.length <= 5;
+      case 'em':
+        // /ɛm/ sound: gem, hem, stem
+        return RegExp(r'^[bcdfghjklmnpqrstvwxyz]*[e][bcdfghjklmnpqrstvwxyz]*em$').hasMatch(lowerWord) && lowerWord.length <= 5;
+        
+      // Long vowel patterns
+      case 'ay':
+        // /eɪ/ sound: day, way, say (NOT "buy" which is /aɪ/)
+        return RegExp(r'^[bcdfghjklmnpqrstvwxyz]*ay$').hasMatch(lowerWord) && lowerWord.length <= 6;
+      case 'ee':
+        // /i/ sound: see, bee, tree
+        return RegExp(r'^[bcdfghjklmnpqrstvwxyz]*ee$').hasMatch(lowerWord) && lowerWord.length <= 6;
+      case 'ie':
+        // /i/ sound: tie, pie, lie (but many -ie words have /aɪ/ like "fly")
+        if (lowerWord.endsWith('y')) return true; // fly, try, cry have /aɪ/
+        return RegExp(r'^[bcdfghjklmnpqrstvwxyz]*ie$').hasMatch(lowerWord) && lowerWord.length <= 5;
+      case 'oa':
+        // /oʊ/ sound: boat, coat, goat
+        return RegExp(r'^[bcdfghjklmnpqrstvwxyz]*oa[bcdfghjklmnpqrstvwxyz]*$').hasMatch(lowerWord) && lowerWord.length <= 6;
+      case 'ow':
+        // /oʊ/ sound: show, snow, grow (NOT "cow", "how" which are /aʊ/)
+        if (lowerWord.endsWith('ow') && (lowerWord.startsWith('c') || lowerWord.startsWith('h') || lowerWord.startsWith('n'))) {
+          // cow, how, now have /aʊ/ sound
+          return false;
+        }
+        return RegExp(r'^[bcdfghjklmnpqrstvwxyz]*ow$').hasMatch(lowerWord) && lowerWord.length <= 6;
+        
+      default:
+        // Basic length filter for unspecified patterns
+        return lowerWord.length <= 5;
+    }
+  }
+
+  /// Get curated child-appropriate words for specific phonetic endings
+  /// CRITICAL: This returns words that SOUND like the ending, not just spell like it
+  static List<String> _getCuratedWordsForEnding(String ending) {
+    final lowerEnding = ending.toLowerCase();
+    
+    // COMPLETE PHONETIC MAPPING: Words that actually have these sound endings
+    switch (lowerEnding) {
+      // VOWEL + T endings
+      case 'at':
+        // /æt/ sound: cat, bat, hat (NOT "treat", "neat", "float")
         return ['cat', 'bat', 'hat', 'mat', 'rat', 'sat', 'pat', 'fat', 'vat', 'chat', 'flat', 'that'];
       case 'it':
-        return ['sit', 'hit', 'bit', 'fit', 'kit', 'lit', 'pit', 'wit', 'quit', 'spit', 'knit', 'grit', 'slit', 'flit', 'split'];
+        // /ɪt/ sound: sit, bit, hit (NOT "wait", "fruit", "fight")
+        return ['sit', 'hit', 'bit', 'fit', 'kit', 'lit', 'pit', 'wit', 'quit', 'spit', 'knit', 'grit'];
+      case 'ot':
+        // /ɑt/ sound: hot, pot, dot (NOT "caught", "bought", "taught")
+        return ['hot', 'pot', 'dot', 'lot', 'not', 'cot', 'jot', 'rot', 'tot'];
+      case 'ut':
+        // /ʌt/ sound: cut, but, hut (NOT "shoot", "about")
+        return ['cut', 'but', 'hut', 'nut', 'shut', 'gut', 'jut', 'rut'];
+      case 'et':
+        // /ɛt/ sound: bet, get, let (NOT "meet", "beat")
+        return ['pet', 'get', 'let', 'met', 'net', 'set', 'bet', 'jet', 'wet', 'yet', 'vet'];
+        
+      // VOWEL + N endings
       case 'an':
+        // /æn/ sound: can, man, ran (NOT "bean", "loan")
         return ['can', 'man', 'ran', 'pan', 'fan', 'tan', 'ban', 'van', 'plan', 'than', 'scan', 'span'];
       case 'in':
+        // /ɪn/ sound: pin, win, tin (NOT "rain", "coin", "sign")
         return ['pin', 'win', 'tin', 'bin', 'fin', 'chin', 'thin', 'skin', 'spin', 'grin', 'twin', 'shin'];
-      case 'ot':
-        return ['hot', 'pot', 'dot', 'got', 'lot', 'not', 'cot', 'jot', 'rot', 'tot', 'shot', 'spot', 'plot', 'knot', 'slot'];
-      case 'ut':
-        return ['cut', 'but', 'hut', 'nut', 'put', 'gut', 'jut', 'rut', 'shut'];
-      case 'ay':
-        return ['day', 'way', 'say', 'may', 'bay', 'hay', 'lay', 'pay', 'play', 'stay', 'pray', 'gray', 'clay', 'tray'];
-      case 'ed':
-        return ['red', 'bed', 'fed', 'wed', 'led', 'shed', 'sled'];
-      case 'et':
-        return ['pet', 'get', 'let', 'met', 'net', 'set', 'bet', 'jet', 'wet', 'yet', 'vet'];
+      case 'on':
+        // /ɑn/ sound: con (RARE - most -on words are /ʌn/)
+        return ['con'];
+      case 'un':
+        // /ʌn/ sound: fun, run, sun (NOT "noun", "moon")
+        return ['run', 'sun', 'fun', 'bun', 'gun', 'nun', 'pun', 'spun', 'stun'];
       case 'en':
+        // /ɛn/ sound: pen, ten, men (NOT "seen", "bean")
         return ['pen', 'ten', 'men', 'hen', 'den', 'when', 'then'];
+        
+      // VOWEL + P endings
+      case 'ap':
+        // /æp/ sound: cap, map, tap (NOT "heap", "loop")
+        return ['cap', 'map', 'tap', 'lap', 'gap', 'nap', 'sap', 'clap', 'snap', 'trap'];
+      case 'ip':
+        // /ɪp/ sound: tip, zip, rip (NOT "deep", "loop")
+        return ['tip', 'zip', 'rip', 'hip', 'lip', 'dip', 'ship', 'chip', 'skip', 'trip'];
+      case 'op':
+        // /ɑp/ sound: top, hop, pop (NOT "loop", "deep")
+        return ['top', 'hop', 'pop', 'cop', 'mop', 'shop', 'stop', 'drop', 'chop'];
+      case 'up':
+        // /ʌp/ sound: cup, pup, up (NOT "soup", "deep")
+        return ['cup', 'pup', 'up', 'sup'];
+      case 'ep':
+        // /ɛp/ sound: step (RARE - NOT "deep", "keep")
+        return ['step', 'prep'];
+        
+      // VOWEL + G endings
+      case 'ag':
+        // /æg/ sound: bag, tag, rag
+        return ['bag', 'tag', 'rag', 'lag', 'sag', 'wag', 'flag', 'drag'];
       case 'ig':
+        // /ɪg/ sound: big, dig, fig
         return ['big', 'dig', 'fig', 'pig', 'wig', 'jig', 'rig'];
       case 'og':
+        // /ɑg/ sound: dog, log, fog
         return ['dog', 'log', 'hog', 'jog', 'fog', 'bog', 'cog', 'frog'];
       case 'ug':
+        // /ʌg/ sound: bug, hug, jug
         return ['bug', 'hug', 'jug', 'mug', 'rug', 'tug', 'dug', 'pug'];
+      case 'eg':
+        // /ɛg/ sound: leg, beg, peg
+        return ['leg', 'beg', 'peg', 'keg', 'egg'];
+        
+      // VOWEL + D endings
+      case 'ad':
+        // /æd/ sound: bad, dad, had
+        return ['bad', 'dad', 'had', 'mad', 'sad', 'pad', 'lad', 'glad'];
+      case 'id':
+        // /ɪd/ sound: kid, lid, bid
+        return ['kid', 'lid', 'bid', 'did', 'hid', 'rid', 'skid'];
+      case 'od':
+        // /ɑd/ sound: nod, rod, cod
+        return ['nod', 'rod', 'cod', 'sod', 'pod'];
+      case 'ud':
+        // /ʌd/ sound: mud, bud, cud
+        return ['mud', 'bud', 'cud', 'dud', 'thud', 'stud'];
+      case 'ed':
+        // /ɛd/ sound: bed, red, led (same as 'et' but different spelling)
+        return ['red', 'bed', 'fed', 'wed', 'led', 'shed', 'sled'];
+        
+      // VOWEL + B endings
+      case 'ab':
+        // /æb/ sound: cab, tab, lab
+        return ['cab', 'tab', 'lab', 'nab', 'jab', 'crab', 'grab'];
+      case 'ib':
+        // /ɪb/ sound: rib, bib
+        return ['rib', 'bib'];
+      case 'ob':
+        // /ɑb/ sound: job, rob, mob
+        return ['job', 'rob', 'mob', 'sob', 'bob', 'glob'];
+      case 'ub':
+        // /ʌb/ sound: tub, rub, hub
+        return ['tub', 'rub', 'hub', 'sub', 'club', 'grub'];
+      case 'eb':
+        // /ɛb/ sound: web, deb
+        return ['web', 'deb'];
+        
+      // VOWEL + M endings
+      case 'am':
+        // /æm/ sound: ham, jam, ram
+        return ['ham', 'jam', 'ram', 'dam', 'yam', 'clam', 'gram'];
+      case 'im':
+        // /ɪm/ sound: rim, dim, him
+        return ['rim', 'dim', 'him', 'tim', 'swim', 'slim', 'trim'];
+      case 'om':
+        // /ɑm/ sound: mom, tom, bomb
+        return ['mom', 'tom', 'bomb', 'from'];
+      case 'um':
+        // /ʌm/ sound: gum, hum, sum
+        return ['gum', 'hum', 'sum', 'rum', 'drum', 'plum', 'chum'];
+      case 'em':
+        // /ɛm/ sound: gem, hem, stem
+        return ['gem', 'hem', 'stem', 'them'];
+        
+      // Long vowel patterns (common in phonics)
+      case 'ay':
+        // /eɪ/ sound: day, way, say
+        return ['day', 'way', 'say', 'may', 'bay', 'hay', 'lay', 'pay', 'play', 'stay', 'pray', 'gray'];
+      case 'ee':
+        // /i/ sound: see, bee, tree
+        return ['see', 'bee', 'tree', 'free', 'three', 'knee', 'flee', 'agree'];
+      case 'ie':
+        // /i/ sound: tie, pie, lie
+        return ['tie', 'pie', 'lie', 'die', 'fly', 'try', 'cry', 'dry'];
+      case 'oa':
+        // /oʊ/ sound: boat, coat, goat
+        return ['boat', 'coat', 'goat', 'road', 'toad', 'soap', 'loaf'];
+      case 'ow':
+        // /oʊ/ sound: show, snow, grow
+        return ['show', 'snow', 'grow', 'blow', 'flow', 'glow', 'slow'];
+        
       default:
         return [];
     }
@@ -987,7 +1592,8 @@ class DatamuseService {
       case 'in':
         return ['pin', 'win', 'tin', 'bin', 'fin', 'chin', 'thin', 'skin', 'spin', 'grin'];
       case 'ot':
-        return ['hot', 'pot', 'dot', 'got', 'lot', 'not', 'cot', 'jot', 'rot', 'tot'];
+        // /ɑt/ sound ONLY - excluding any that might rhyme with 'aught' patterns  
+        return ['hot', 'pot', 'dot', 'lot', 'not', 'cot', 'jot', 'rot', 'tot'];
       case 'ut':
         return ['cut', 'but', 'hut', 'nut', 'put', 'gut', 'jut', 'rut', 'shut'];
       case 'ay':

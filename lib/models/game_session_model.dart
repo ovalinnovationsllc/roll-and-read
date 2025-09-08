@@ -347,6 +347,13 @@ class GameSessionModel {
     );
   }
 
+  GameSessionModel markForTeacherReview({String? winnerId}) {
+    return copyWith(
+      status: GameStatus.pendingTeacherReview,
+      winnerId: winnerId,
+    );
+  }
+  
   GameSessionModel endGame({String? winnerId}) {
     return copyWith(
       status: GameStatus.completed,
@@ -482,6 +489,7 @@ class PlayerInGame {
 enum GameStatus {
   waitingForPlayers,
   inProgress,
+  pendingTeacherReview, // Winner detected, waiting for teacher to review and update stats
   completed,
   cancelled,
 }

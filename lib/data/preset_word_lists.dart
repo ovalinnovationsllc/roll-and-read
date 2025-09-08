@@ -1,3 +1,5 @@
+import '../services/content_filter_service.dart';
+
 class PresetWordLists {
   static const List<String> kindergartenWords = [
     'a', 'i', 'in', 'is', 'it', 'to', 'the', 'and', 'me', 'my',
@@ -60,9 +62,11 @@ class PresetWordLists {
         sourceWords = List.from(kindergartenWords);
     }
     
-    sourceWords.shuffle();
+    // Apply content filtering to source words
+    final safeSourceWords = ContentFilterService.filterWords(sourceWords);
+    safeSourceWords.shuffle();
     
-    final selectedWords = sourceWords.take(totalWords).toList();
+    final selectedWords = safeSourceWords.take(totalWords).toList();
     
     final List<List<String>> grid = [];
     for (int i = 0; i < 6; i++) {
@@ -71,6 +75,10 @@ class PresetWordLists {
         final index = i * 6 + j;
         if (index < selectedWords.length) {
           row.add(selectedWords[index]);
+        } else {
+          // If we run out of words, get safe replacements
+          final replacements = ContentFilterService.getSafeReplacements(1);
+          row.add(replacements.first);
         }
       }
       if (row.isNotEmpty) {
