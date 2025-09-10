@@ -1,87 +1,23 @@
+import 'dart:math';
 import '../services/content_filter_service.dart';
+import '../services/custom_word_list_service.dart';
 
 class PresetWordLists {
-  static const List<String> kindergartenWords = [
-    'a', 'i', 'in', 'is', 'it', 'to', 'the', 'and', 'me', 'my',
-    'not', 'am', 'on', 'we', 'can', 'for', 'you', 'go', 'up', 'at',
-    'did', 'down', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight',
-    'nine', 'ten', 'away', 'big', 'come', 'find', 'funny', 'help', 'here', 'jump',
-    'little', 'look', 'make', 'play', 'run', 'said', 'see', 'where', 'but', 'blue',
-    'red', 'green', 'black', 'brown', 'orange', 'pink', 'white', 'purple', 'yellow', 'that',
-    'came', 'went', 'saw', 'all', 'are', 'be', 'do', 'eat', 'have',
-    'he', 'she', 'under', 'too', 'this', 'get', 'good', 'ate', 'into', 'like',
-    'must', 'new', 'no', 'now', 'our', 'out', 'please', 'pretty', 'ran', 'ride',
-    'say', 'so', 'soon', 'there', 'they', 'want', 'was', 'well', 'what', 'who',
-    'will', 'with', 'yea'
-  ];
-
-  static const List<String> firstGradeWords = [
-    'the', 'a', 'and', 'is', 'his', 'of', 'as', 'has', 'to', 'into',
-    'we', 'he', 'she', 'be', 'me', 'for', 'or', 'you', 'your', 'I',
-    'they', 'was', 'one', 'said', 'from', 'have', 'do', 'does', 'were', 'are',
-    'who', 'what', 'when', 'where', 'there', 'here', 'why', 'by', 'my', 'try',
-    'put', 'two', 'too', 'very', 'also', 'some', 'come', 'would', 'could', 'should',
-    'her', 'over', 'number', 'say', 'says', 'see', 'between', 'each', 'any', 'many',
-    'how', 'now', 'down', 'out', 'about', 'our', 'friend', 'other', 'another', 'none',
-    'nothing', 'people', 'month', 'little', 'been', 'own', 'want', 'mr', 'mrs', 'work',
-    'word', 'write', 'being', 'their', 'first', 'look', 'good', 'new', 'water', 'called',
-    'day', 'may', 'way'
-  ];
-
-  static const List<String> secondGradeWords = [
-    'pull', 'shall', 'full', 'both', 'talk', 'walk', 'goes', 'pretty', 'done', 'again',
-    'please', 'sure', 'animal', 'used', 'use', 'against', 'knew', 'know', 'always', 'often',
-    'once', 'house', 'only', 'move', 'right', 'place', 'together', 'eight', 'large', 'change',
-    'city', 'every', 'family', 'night', 'carry', 'something', 'world', 'answer', 'different', 'picture',
-    'learn', 'earth', 'father', 'brother', 'mother', 'great', 'country', 'away', 'America', 'school',
-    'thought', 'won', 'whose', 'son', 'breakfast', 'head', 'ready', 'easy', 'favorite', 'ocean',
-    'Monday', 'Tuesday', 'cousin', 'lose', 'tomorrow', 'beautiful', 'Wednesday', 'Thursday', 'Saturday', 'bought',
-    'brought', 'piece', 'January', 'February', 'enough', 'July', 'special', 'December', 'August', 'laugh',
-    'daughter', 'trouble', 'couple', 'young'
-  ];
 
   static List<List<String>> getRandomWordsForGrid(String gradeLevel, {int totalWords = 36}) {
-    List<String> sourceWords;
-    
-    switch (gradeLevel.toLowerCase()) {
-      case 'kindergarten':
-      case 'k':
-        sourceWords = List.from(kindergartenWords);
-        break;
-      case 'first':
-      case '1':
-      case '1st':
-        sourceWords = List.from(firstGradeWords);
-        break;
-      case 'second':
-      case '2':
-      case '2nd':
-        sourceWords = List.from(secondGradeWords);
-        break;
-      default:
-        sourceWords = List.from(kindergartenWords);
-    }
-    
-    // Apply content filtering to source words
-    final safeSourceWords = ContentFilterService.filterWords(sourceWords);
-    safeSourceWords.shuffle();
-    
-    final selectedWords = safeSourceWords.take(totalWords).toList();
+    // Preset lists have been removed - use safe replacements
+    final safeWords = ContentFilterService.getSafeReplacements(totalWords);
     
     final List<List<String>> grid = [];
     for (int i = 0; i < 6; i++) {
       final row = <String>[];
       for (int j = 0; j < 6; j++) {
         final index = i * 6 + j;
-        if (index < selectedWords.length) {
-          row.add(selectedWords[index]);
-        } else {
-          // If we run out of words, get safe replacements
-          final replacements = ContentFilterService.getSafeReplacements(1);
-          row.add(replacements.first);
+        if (index < safeWords.length) {
+          row.add(safeWords[index]);
         }
       }
-      if (row.isNotEmpty) {
+      if (row.length == 6) {
         grid.add(row);
       }
     }
@@ -90,20 +26,131 @@ class PresetWordLists {
   }
 
   static String getGradeLevelDescription(String gradeLevel) {
-    switch (gradeLevel.toLowerCase()) {
-      case 'kindergarten':
-      case 'k':
-        return 'Kindergarten Sight Words';
-      case 'first':
-      case '1':
-      case '1st':
-        return 'First Grade Trick Words';
-      case 'second':
-      case '2':
-      case '2nd':
-        return 'Second Grade Trick Words';
-      default:
-        return 'Word List';
+    // Basic grade descriptions removed - only UFLI categories remain
+    return 'Word List';
+  }
+  
+  /// Get available word list types from Firebase
+  static Future<List<String>> getAvailableWordListTypes() async {
+    try {
+      print('🔍 Fetching shared word lists from Firebase...');
+      // Get shared word lists from Firebase
+      final sharedLists = await CustomWordListService.getSharedWordListsOnce();
+      print('📊 Found ${sharedLists.length} shared word lists');
+      final titles = sharedLists.map((list) => list.title).toList();
+      print('📝 Word list titles: $titles');
+      return titles;
+    } catch (e) {
+      print('❌ Error fetching word lists: $e');
+      // Return some default options if Firebase fails
+      return ['No shared word lists found'];
     }
   }
+  
+  /// Get available word list categories from Firebase
+  static Future<List<String>> getAvailableCategories() async {
+    // Get grade levels from shared word lists in Firebase
+    final sharedLists = await CustomWordListService.getSharedWordListsOnce();
+    final categories = sharedLists
+        .map((list) => list.gradeLevel ?? 'Other')
+        .where((grade) => grade.isNotEmpty)
+        .toSet()
+        .toList();
+    categories.sort();
+    return categories;
+  }
+  
+  /// Get word grid based on Firebase word list selection
+  static Future<List<List<String>>> getWordGridByType(String type, {int totalWords = 36}) async {
+    try {
+      // Get the word list from Firebase by title
+      final sharedLists = await CustomWordListService.getSharedWordListsOnce();
+      final wordList = sharedLists.firstWhere(
+        (list) => list.title == type,
+      );
+      
+      // Use the actual words from Firebase
+      return _createWordGridFromList(wordList.words, totalWords: totalWords);
+    } catch (e) {
+      // Fallback to default if word list not found
+      return getRandomWordsForGrid('default', totalWords: totalWords);
+    }
+  }
+  
+  /// Create word grid from Firebase word list
+  static List<List<String>> _createWordGridFromList(List<String> words, {int totalWords = 36}) {
+    // Apply content filtering
+    final safeWords = ContentFilterService.filterWords(words);
+    
+    if (safeWords.isEmpty) {
+      // Fallback if no safe words
+      final fallbackWords = ContentFilterService.getSafeReplacements(totalWords);
+      return _createGridFromWords(fallbackWords);
+    }
+    
+    final selectedWords = <String>[];
+    
+    // If we have enough words, use them all then randomly duplicate
+    if (safeWords.length >= totalWords) {
+      safeWords.shuffle();
+      selectedWords.addAll(safeWords.take(totalWords));
+    } else {
+      // Add all available words first
+      selectedWords.addAll(safeWords);
+      
+      // Randomly duplicate words from the same list to reach totalWords
+      final random = Random();
+      while (selectedWords.length < totalWords) {
+        final randomWord = safeWords[random.nextInt(safeWords.length)];
+        selectedWords.add(randomWord);
+      }
+    }
+    
+    // Final shuffle to mix originals with duplicates
+    selectedWords.shuffle();
+    
+    return _createGridFromWords(selectedWords);
+  }
+  
+  /// Check if Firebase word lists are available
+  static Future<bool> areFirebaseListsAvailable() async {
+    try {
+      final sharedLists = await CustomWordListService.getSharedWordListsOnce();
+      return sharedLists.isNotEmpty;
+    } catch (e) {
+      return false;
+    }
+  }
+  
+  /// Get description for Firebase word list type
+  static Future<String> getWordListTypeDescription(String type) async {
+    try {
+      final sharedLists = await CustomWordListService.getSharedWordListsOnce();
+      final wordList = sharedLists.firstWhere(
+        (list) => list.title == type,
+      );
+      return wordList.description ?? 'Word practice list';
+    } catch (e) {
+      return 'Word practice list';
+    }
+  }
+  
+  /// Helper method to create grid from word list
+  static List<List<String>> _createGridFromWords(List<String> words) {
+    final List<List<String>> grid = [];
+    for (int i = 0; i < 6; i++) {
+      final row = <String>[];
+      for (int j = 0; j < 6; j++) {
+        final index = i * 6 + j;
+        if (index < words.length) {
+          row.add(words[index]);
+        }
+      }
+      if (row.length == 6) {
+        grid.add(row);
+      }
+    }
+    return grid;
+  }
+
 }

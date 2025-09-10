@@ -1,10 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../config/app_colors.dart';
 import '../models/user_model.dart';
 import '../models/game_session_model.dart';
 import '../services/ai_word_service.dart';
 import '../services/game_session_service.dart';
 import '../services/game_state_service.dart';
+import '../services/content_filter_service.dart';
+import '../services/ufli_lessons_service.dart';
+import '../data/ufli_lesson_categories.dart';
 
 class TeacherReviewScreen extends StatefulWidget {
   final GameSessionModel gameSession;
@@ -62,66 +66,25 @@ class _TeacherReviewScreenState extends State<TeacherReviewScreen> {
   Future<void> _regenerateSelectedWords() async {
     if (_selectedWords.isEmpty || _isRegenerating) return;
 
-    // Ask teacher what type of words they want
-    final prompt = await _showWordPatternDialog();
-    if (prompt == null) return; // User cancelled
-    
     setState(() {
       _isRegenerating = true;
     });
 
     try {
-      // Use the teacher's specified prompt instead of the original game prompt
-      final difficulty = widget.gameSession.difficulty ?? 'elementary';
-      
       print('🔄 Regenerating ${_selectedWords.length} selected words');
-      print('📝 Using prompt: "$prompt"');
       
       // Get all current words (including ones we're keeping)
       final currentWords = _currentWordGrid.expand((row) => row).toSet();
       
-      // Get the specific words we're replacing
-      final wordsBeingReplaced = <String>{};
-      for (String wordKey in _selectedWords) {
-        final parts = wordKey.split('-');
-        final row = int.parse(parts[0]);
-        final col = int.parse(parts[1]);
-        final wordBeingReplaced = _currentWordGrid[row][col];
-        wordsBeingReplaced.add(wordBeingReplaced);
-        // Add to persistent tracking
-        _allReplacedWords.add(wordBeingReplaced);
-      }
-      
-      // Create comprehensive avoid list including all previously replaced words
-      final wordsToAvoid = currentWords.union(wordsBeingReplaced).union(_allReplacedWords);
-      print('🚫 Words to avoid (including all previously replaced): ${wordsToAvoid.join(", ")}');
-      
-      // Generate multiple grids to get more word options
       List<String> candidateWords = [];
-      int attempts = 0;
-      const maxAttempts = 3;
       
-      // FIRST: Try pattern-specific fallback words (our phonics word lists)
-      print('🔍 Prompt for pattern detection: "$prompt"');
-      final patternFallbackWords = _getPatternSpecificFallbacks(prompt, wordsToAvoid);
-      print('🎯 Pattern fallback words found: $patternFallbackWords');
-      
-      for (String word in patternFallbackWords) {
-        if (!wordsToAvoid.contains(word) && 
-            !candidateWords.contains(word) &&
-            candidateWords.length < _selectedWords.length) {
-          candidateWords.add(word);
-          print('🔄 Added pattern-specific fallback: "$word"');
-        } else {
-          print('🚫 Skipped "$word" - already exists in current words, previously replaced, or being replaced');
-        }
-      }
-      
-      // SECOND: If pattern words aren't enough, try AI generation
-      while (candidateWords.length < _selectedWords.length * 2 && attempts < maxAttempts) {
-        attempts++;
-        print('🎲 AI generation attempt $attempts (after pattern fallbacks)');
+      if (widget.gameSession.useAIWords && widget.gameSession.aiPrompt != null) {
+        // AI-generated game - use the original prompt
+        final prompt = widget.gameSession.aiPrompt!;
+        final difficulty = widget.gameSession.difficulty ?? 'elementary';
+        print('🔄 AI game - using original prompt: "$prompt"');
         
+        // Generate new words using AI
         final newGrid = await AIWordService.generateWordGrid(
           prompt: prompt,
           difficulty: difficulty,
@@ -129,94 +92,121 @@ class _TeacherReviewScreenState extends State<TeacherReviewScreen> {
           gameName: widget.gameSession.gameName,
         );
         
-        // Extract new words and filter out duplicates/existing words
-        final newWords = newGrid.expand((row) => row).toList();
-        for (String word in newWords) {
-          if (!wordsToAvoid.contains(word) && 
-              !candidateWords.contains(word)) {
-            candidateWords.add(word);
-          }
-        }
+        candidateWords = newGrid.expand((row) => row)
+            .where((word) => !currentWords.contains(word))
+            .toList();
         
-        print('🎯 Found ${candidateWords.length} unique candidate words so far');
-      }
-      
-      // THIRD: If we still need more words, try related patterns
-      if (candidateWords.length < _selectedWords.length) {
-        print('⚠️ Still need more words, trying related patterns');
-        final relatedWords = _getRelatedPatternWords(prompt, wordsToAvoid.union(candidateWords.toSet()));
-        print('🎯 Related pattern words found: $relatedWords');
+      } else {
+        // Preset list game - try to find the FULL word list from Firebase
+        print('🔄 Preset list game - searching for full word list in Firebase');
         
-        for (String word in relatedWords) {
-          if (!wordsToAvoid.contains(word) && 
-              !candidateWords.contains(word) &&
-              candidateWords.length < _selectedWords.length) {
-            candidateWords.add(word);
-            print('🔄 Added related pattern word: "$word"');
-          }
-        }
-      }
-      
-      // FOURTH: Try one more AI generation attempt with broader prompt
-      if (candidateWords.length < _selectedWords.length && attempts < maxAttempts) {
-        print('⚠️ Still need more words, trying broader AI generation');
-        final broaderPrompt = _createBroaderPrompt(prompt);
-        print('🔄 Broader prompt: "$broaderPrompt"');
+        final gameName = widget.gameSession.gameName;
+        print('🔍 Game name: "$gameName"');
+        
+        // First, try to find the full word list that matches this game
+        List<String> fullWordList = [];
         
         try {
-          final additionalGrid = await AIWordService.generateWordGrid(
-            prompt: broaderPrompt,
-            difficulty: difficulty,
-            gameId: widget.gameSession.gameId,
-            gameName: widget.gameSession.gameName,
-          );
-          
-          final additionalWords = additionalGrid.expand((row) => row).toList();
-          for (String word in additionalWords) {
-            if (!wordsToAvoid.contains(word) && 
-                !candidateWords.contains(word) &&
-                candidateWords.length < _selectedWords.length) {
-              candidateWords.add(word);
-              print('🔄 Added from broader generation: "$word"');
+          // Get sample words from the current game to identify the source list
+          final originalWordGrid = widget.gameSession.wordGrid;
+          if (originalWordGrid != null && originalWordGrid.isNotEmpty) {
+            final sampleWords = originalWordGrid.expand((row) => row).take(5).toList();
+            print('🔍 Sample words from game: ${sampleWords.join(", ")}');
+            
+            // Query Firebase custom_word_lists collection to find matching list
+            final customListsQuery = await FirebaseFirestore.instance
+                .collection('custom_word_lists')
+                .get();
+            
+            print('📊 Checking ${customListsQuery.docs.length} custom word lists in Firebase');
+            
+            for (final doc in customListsQuery.docs) {
+              final data = doc.data();
+              List<String>? listWords;
+              
+              // Check different field names for words
+              if (data.containsKey('words') && data['words'] is List) {
+                listWords = List<String>.from(data['words']);
+              } else if (data.containsKey('wordGrid') && data['wordGrid'] is List) {
+                listWords = List<String>.from(data['wordGrid']);
+              }
+              
+              if (listWords != null) {
+                // Check if this list contains our sample words
+                bool isMatch = sampleWords.every((word) => listWords!.contains(word));
+                
+                if (isMatch) {
+                  print('✅ Found matching word list: ${doc.id} with ${listWords.length} total words');
+                  fullWordList = listWords;
+                  break;
+                }
+              }
+            }
+            
+            if (fullWordList.isEmpty) {
+              print('⚠️ No matching full word list found, using game grid words only');
+              fullWordList = originalWordGrid.expand((row) => row).toList();
             }
           }
         } catch (e) {
-          print('⚠️ Broader generation failed: $e');
-        }
-      }
-      
-      // FIFTH: Only use generic fallbacks as last resort
-      if (candidateWords.length < _selectedWords.length) {
-        print('⚠️ All attempts exhausted, using minimal generic fallbacks');
-        final genericFallbacks = [
-          'good', 'nice', 'fun', 'best', 'great', 'super', 'happy', 'smile'
-        ];
-        
-        for (String word in genericFallbacks) {
-          if (!wordsToAvoid.contains(word) && 
-              !candidateWords.contains(word) &&
-              candidateWords.length < _selectedWords.length) {
-            candidateWords.add(word);
-            print('🔄 Added minimal generic fallback: "$word"');
+          print('❌ Error fetching full word list: $e');
+          // Fall back to using just the game grid
+          final originalWordGrid = widget.gameSession.wordGrid;
+          if (originalWordGrid != null) {
+            fullWordList = originalWordGrid.expand((row) => row).toList();
           }
         }
+        
+        // Filter out instructional words
+        final filteredWords = fullWordList.where((word) => !_isInstructionalWord(word)).toList();
+        
+        print('📚 Total words available: ${fullWordList.length}');
+        print('📚 After filtering instructional words: ${filteredWords.length} words');
+        
+        if (fullWordList.length != filteredWords.length) {
+          final removedWords = fullWordList.where((word) => _isInstructionalWord(word)).toList();
+          print('🚫 Removed instructional words: ${removedWords.join(", ")}');
+        }
+        
+        // Use filtered words as candidate pool, excluding currently visible words
+        candidateWords = filteredWords
+            .where((word) => !currentWords.contains(word))
+            .toList();
+        
+        print('🎯 ${candidateWords.length} replacement candidates available');
+        
+        // Only fall back to safe words if we have NO candidates
+        if (candidateWords.isEmpty) {
+          print('⚠️ No unused words available, falling back to safe words');
+          final safeWords = ContentFilterService.getSafeReplacements(100);
+          candidateWords = safeWords
+              .where((word) => !currentWords.contains(word))
+              .toList();
+        }
       }
       
-      // Replace selected words with unique new ones
+      if (candidateWords.length < _selectedWords.length) {
+        print('⚠️ Not enough replacement words found. Using what we have.');
+      }
+      
+      // Shuffle and take what we need
+      candidateWords.shuffle();
+      final replacementWords = candidateWords.take(_selectedWords.length).toList();
+      
+      // Replace selected words with new ones
       int replacementIndex = 0;
-      final replacedCount = _selectedWords.length;
       
       for (String wordKey in _selectedWords) {
         final parts = wordKey.split('-');
         final row = int.parse(parts[0]);
         final col = int.parse(parts[1]);
         
-        if (replacementIndex < candidateWords.length) {
-          final newWord = candidateWords[replacementIndex];
+        if (replacementIndex < replacementWords.length) {
+          final oldWord = _currentWordGrid[row][col];
+          final newWord = replacementWords[replacementIndex];
           _currentWordGrid[row][col] = newWord;
-          currentWords.add(newWord); // Update our tracking set
           replacementIndex++;
-          print('🔄 Replaced "${wordsBeingReplaced.elementAt(replacementIndex - 1)}" with "$newWord"');
+          print('🔄 Replaced "$oldWord" with "$newWord"');
         }
       }
       
@@ -958,5 +948,85 @@ class _TeacherReviewScreenState extends State<TeacherReviewScreen> {
       ),
     ),
     );
+  }
+
+  /// Get words from a specific UFLI lesson for replacement
+  Future<List<String>> _getWordsFromUFLILesson(int? lessonNumber) async {
+    if (lessonNumber == null) return [];
+    
+    try {
+      // Try to get words from the UFLI lesson categories using the grid method
+      final lessonId = 'lesson_$lessonNumber';
+      final wordGrid = UFLILessonCategories.getLessonWordGrid(lessonId);
+      
+      if (wordGrid.isNotEmpty) {
+        final allWords = wordGrid.expand((row) => row).toList();
+        print('🎯 Found ${allWords.length} words for UFLI lesson $lessonNumber');
+        return allWords;
+      }
+      
+      // Since lesson-specific words aren't available yet, use the original game's word list
+      // as the source for replacements - this ensures consistency with the lesson
+      print('⚠️ No extracted words found for lesson $lessonNumber, using original game words as source');
+      
+      // Get the original word grid from this game session
+      final originalWordGrid = widget.gameSession.wordGrid;
+      if (originalWordGrid != null && originalWordGrid.isNotEmpty) {
+        final allOriginalWords = originalWordGrid.expand((row) => row).toList();
+        
+        // Filter out instructional/title words that shouldn't be in student games
+        final filteredWords = allOriginalWords.where((word) => !_isInstructionalWord(word)).toList();
+        
+        print('📚 Found ${allOriginalWords.length} total words from original game, ${filteredWords.length} after filtering instructional words');
+        if (allOriginalWords.length != filteredWords.length) {
+          final removedWords = allOriginalWords.where((word) => _isInstructionalWord(word)).toList();
+          print('🚫 Removed instructional words: ${removedWords.join(", ")}');
+        }
+        
+        return filteredWords;
+      }
+      
+      // Final fallback - return empty to use safe words
+      print('❌ No original words found for lesson $lessonNumber');
+      return [];
+    } catch (e) {
+      print('❌ Error getting words for lesson $lessonNumber: $e');
+      return [];
+    }
+  }
+
+  /// Check if a word is an instructional/title word that shouldn't be in student games
+  bool _isInstructionalWord(String word) {
+    final lower = word.toLowerCase().trim();
+    
+    // Words that are commonly from titles, instructions, or metadata
+    final instructionalWords = {
+      // Basic instructional words
+      'practice', 'exercise', 'activity', 'homework', 'worksheet',
+      'lesson', 'grade', 'level', 'directions', 'instructions',
+      'roll', 'read', 'circle', 'write', 'trace', 'spell',
+      'match', 'connect', 'draw', 'color', 'cut', 'paste',
+      'complete', 'finish', 'review', 'student', 'teacher',
+      'name', 'date', 'score', 'page', 'copyright',
+      'university', 'ufli', 'foundations', 'roll and read',
+      
+      // Phonics/linguistic terminology from lesson titles
+      'vowel', 'vowels', 'part', 'nasalized', 'advanced', 'spelling', 
+      'voiced', 'unvoiced', 'digraphs', 'digraph', 'vce', 'exceptions', 
+      'syllables', 'syllable', 'compound', 'open', 'closed', 'controlled', 
+      'dipthongs', 'diphthongs', 'doubling', 'signal', 'affixes', 'affix',
+      'vc', 'cv', 'cvc', 'cvce', 'ccvc', 'cvcc', 'ccvcc', 'vcc',  // Phonics patterns/abbreviations
+      
+      // Additional educational terminology  
+      'phonics', 'sounds', 'patterns', 'blends', 'consonant', 'consonants',
+      'short', 'long', 'silent', 'magic', 'cvce', 'cvc', 'mixed',
+      'beginning', 'ending', 'middle', 'final', 'initial',
+      'prefix', 'prefixes', 'suffix', 'suffixes', 'root',
+      
+      // Very common words that might be instructions
+      'the', 'and', 'to', 'a', 'in', 'of', 'for', 'with', 'words',
+    };
+    
+    return instructionalWords.contains(lower);
   }
 }

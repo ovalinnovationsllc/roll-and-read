@@ -324,7 +324,7 @@ class GameSessionModel {
 
   // Helper methods
   bool get isFull => players.length >= maxPlayers;
-  bool get canStart => players.length >= 1; // Allow single-player games
+  bool get canStart => players.length >= maxPlayers; // Wait for all required players
   bool get isActive => status == GameStatus.inProgress;
   bool get isWaiting => status == GameStatus.waitingForPlayers;
   

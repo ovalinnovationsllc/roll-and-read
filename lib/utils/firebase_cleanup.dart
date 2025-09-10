@@ -23,6 +23,9 @@ class FirebaseCleanup {
       
       // 5. Keep only: games, gameStates, users, wordLists
       
+      // 6. Clean instructional words from word lists
+      await cleanInstructionalWordsFromWordLists();
+      
     } catch (e) {
       rethrow;
     }
@@ -202,6 +205,114 @@ class FirebaseCleanup {
       }
       
     } catch (e) {
+      rethrow;
+    }
+  }
+
+  /// Clean instructional words from Firebase word lists
+  static Future<void> cleanInstructionalWordsFromWordLists() async {
+    print('🧹 Starting cleanup of instructional words from Firebase word lists...');
+    
+    try {
+      // Words that are commonly from titles, instructions, or metadata that shouldn't be in student games
+      final instructionalWords = {
+        // Basic instructional words
+        'practice', 'exercise', 'activity', 'homework', 'worksheet',
+        'lesson', 'grade', 'level', 'directions', 'instructions',
+        'roll', 'read', 'circle', 'write', 'trace', 'spell',
+        'match', 'connect', 'draw', 'color', 'cut', 'paste',
+        'complete', 'finish', 'review', 'student', 'teacher',
+        'name', 'date', 'score', 'page', 'copyright',
+        'university', 'ufli', 'foundations', 'roll and read',
+        
+        // Phonics/linguistic terminology from lesson titles
+        'vowel', 'vowels', 'part', 'nasalized', 'advanced', 'spelling', 
+        'voiced', 'unvoiced', 'digraphs', 'digraph', 'vce', 'exceptions', 
+        'syllables', 'syllable', 'compound', 'open', 'closed', 'controlled', 
+        'dipthongs', 'diphthongs', 'doubling', 'signal', 'affixes', 'affix',
+        'vc', 'cv', 'cvc', 'cvce', 'ccvc', 'cvcc', 'ccvcc', 'vcc',  // Phonics patterns/abbreviations
+        
+        // Additional educational terminology  
+        'phonics', 'sounds', 'patterns', 'blends', 'consonant', 'consonants',
+        'short', 'long', 'silent', 'magic', 'cvce', 'cvc', 'mixed',
+        'beginning', 'ending', 'middle', 'final', 'initial',
+        'prefix', 'prefixes', 'suffix', 'suffixes', 'root',
+        
+        // Very common words that might be instructions
+        'the', 'and', 'to', 'a', 'in', 'of', 'for', 'with', 'words',
+      };
+
+      // Get all word lists from Firebase - check both collections
+      final collections = ['wordLists', 'custom_word_lists'];
+      
+      int totalListsProcessed = 0;
+      int totalWordsRemoved = 0;
+      
+      for (final collectionName in collections) {
+        print('🔍 Checking collection: $collectionName');
+        final wordListsSnapshot = await _firestore.collection(collectionName).get();
+        print('📊 Found ${wordListsSnapshot.docs.length} documents in $collectionName');
+        
+        int listsProcessed = 0;
+        int wordsRemoved = 0;
+        
+        for (final doc in wordListsSnapshot.docs) {
+          final data = doc.data();
+          final docId = doc.id;
+          
+          // Check different possible field names for word data
+          List<String>? originalWords;
+          String? updateField;
+          
+          if (data.containsKey('wordGrid') && data['wordGrid'] is List) {
+            final List<dynamic> flatWordGrid = data['wordGrid'];
+            originalWords = flatWordGrid.cast<String>();
+            updateField = 'wordGrid';
+          } else if (data.containsKey('words') && data['words'] is List) {
+            final List<dynamic> wordsData = data['words'];
+            originalWords = wordsData.cast<String>();
+            updateField = 'words';
+          }
+          
+          if (originalWords != null && updateField != null) {
+            // Filter out instructional words (case insensitive)
+            final filteredWords = originalWords.where((word) {
+              final lowerWord = word.toLowerCase().trim();
+              return !instructionalWords.contains(lowerWord);
+            }).toList();
+            
+            // If words were removed, update the document
+            if (originalWords.length != filteredWords.length) {
+              final removedWords = originalWords.where((word) {
+                final lowerWord = word.toLowerCase().trim();
+                return instructionalWords.contains(lowerWord);
+              }).toList();
+              
+              print('📝 $collectionName/${docId}: Removing ${removedWords.length} instructional words: ${removedWords.join(", ")}');
+              
+              // Update the document with cleaned word grid
+              await _firestore.collection(collectionName).doc(docId).update({
+                updateField: filteredWords,
+              });
+              
+              wordsRemoved += removedWords.length;
+            } else {
+              print('✅ $collectionName/${docId}: No instructional words found');
+            }
+            
+            listsProcessed++;
+          }
+        }
+        
+        print('📊 $collectionName: Processed $listsProcessed lists, removed $wordsRemoved words');
+        totalListsProcessed += listsProcessed;
+        totalWordsRemoved += wordsRemoved;
+      }
+      
+      print('🎉 Cleanup complete! Processed $totalListsProcessed total word lists across all collections, removed $totalWordsRemoved total instructional words');
+      
+    } catch (e) {
+      print('❌ Error cleaning instructional words: $e');
       rethrow;
     }
   }

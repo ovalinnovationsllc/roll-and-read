@@ -799,8 +799,11 @@ class FirestoreService {
         query = query.where('createdBy', isEqualTo: teacherId);
       }
       
-      // Filter for completed games only
-      query = query.where('status', isEqualTo: GameStatus.completed.toString());
+      // Filter for completed and pending review games
+      query = query.where('status', whereIn: [
+        GameStatus.completed.toString(),
+        GameStatus.pendingTeacherReview.toString()
+      ]);
       
       // Don't filter by endedAt initially - let's see all completed games first
       // query = query.where('endedAt', isGreaterThan: fiveDaysAgoTimestamp);

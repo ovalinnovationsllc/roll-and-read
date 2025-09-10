@@ -730,7 +730,7 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
       // Only clear the processing flag after significant delay
       if (mounted) {
         Future.delayed(const Duration(seconds: 3), () {
-          if (mounted) {
+          if (mounted && context.mounted) {
             setState(() {
               _isProcessingSelection = false;
             });
@@ -844,7 +844,13 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
             ),
           ],
         ),
-        actions: [],
+        actions: [
+          IconButton(
+            icon: Icon(Icons.exit_to_app),
+            onPressed: _showLeaveGameDialog,
+            tooltip: 'Leave Game',
+          ),
+        ],
         centerTitle: true,
         elevation: 2,
       ),
@@ -855,7 +861,7 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
           if (!widget.isTeacherMode && gameSessionSnapshot.data == null && gameSessionSnapshot.connectionState != ConnectionState.waiting) {
             // Game was deleted by teacher - show dialog and navigate home
             WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (mounted) {
+              if (mounted && context.mounted) {
                 _showGameDeletedDialog();
               }
             });
@@ -886,6 +892,21 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
               print('🎮 GAME OVER DETECTED: Status = ${updatedSession.status}');
               print('🧹 Clearing saved game session to prevent rejoin...');
               SessionService.clearGameSession();
+              
+              // Show notification to players (not teachers) that the game ended
+              // BUT only if it wasn't a natural win (natural wins show celebration instead)
+              if (!widget.isTeacherMode) {
+                final hasNaturalWinner = _currentGameState?.checkForWinner() != null;
+                final isNaturalWin = (updatedSession.status == GameStatus.completed && hasNaturalWinner);
+                
+                if (!isNaturalWin) {
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (mounted && context.mounted) {
+                      _showGameEndedDialog(updatedSession.status);
+                    }
+                  });
+                }
+              }
             } else if (updatedSession.status == GameStatus.pendingTeacherReview) {
               // Don't clear session for pending review - teacher needs to access it!
               print('📝 Game pending teacher review - keeping session for teacher access');
@@ -908,7 +929,7 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
                   // If it's now my turn and I'm not in teacher mode, reset selection state and dice
                   if (currentTurnPlayer == widget.user.id && !widget.isTeacherMode) {
                     WidgetsBinding.instance.addPostFrameCallback((_) {
-                      if (mounted) {
+                      if (mounted && context.mounted) {
                         setState(() {
                           _hasSelectedThisTurn = false; // Allow new player to make selection
                           _isProcessingSelection = false;
@@ -934,6 +955,7 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
                   !widget.isTeacherMode) {
                 print('🚨 DETECTED BROKEN GAME STATE: Attempting to fix...');
                 WidgetsBinding.instance.addPostFrameCallback((_) async {
+                  if (!mounted || !context.mounted) return;
                   try {
                     await GameStateService.fixBrokenGameState(
                       newGameState.gameId, 
@@ -957,7 +979,7 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
                 _gameCompletionInProgress = true; // Prevent multiple attempts
                 
                 WidgetsBinding.instance.addPostFrameCallback((_) async {
-                  if (mounted) {
+                  if (mounted && context.mounted) {
                     
                     // DIRECTLY UPDATE FIREBASE FIRST - BEFORE SHOWING DIALOG
                     print('🔥🔥🔥 WINNER DETECTED - UPDATING FIREBASE DIRECTLY 🔥🔥🔥');
@@ -1009,7 +1031,7 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
                 if (_currentGameSession!.status == GameStatus.cancelled) {
                   // Game was cancelled - navigate away AND clear session
                   WidgetsBinding.instance.addPostFrameCallback((_) async {
-                    if (mounted) {
+                    if (mounted && context.mounted) {
                       await SessionService.clearGameSession();
                       Navigator.of(context).popUntil((route) => route.isFirst);
                     }
@@ -2659,6 +2681,73 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
     return Container();
   }
 
+  Future<void> _showLeaveGameDialog() async {
+    final shouldLeave = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Leave Game'),
+        content: const Text('Are you sure you want to leave this game? You can rejoin using the game code if the game is still active.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: TextButton.styleFrom(
+              foregroundColor: Colors.red,
+            ),
+            child: const Text('Leave Game'),
+          ),
+        ],
+      ),
+    );
+
+    if (shouldLeave == true && mounted) {
+      await _leaveGame();
+    }
+  }
+
+  Future<void> _leaveGame() async {
+    try {
+      // If this is a teacher/admin ending the game, use the existing end game logic
+      if (widget.user.isAdmin) {
+        await _endGame();
+        return;
+      }
+
+      // For students, remove them from the game session
+      await GameSessionService.leaveGameSession(
+        gameId: widget.gameSession.gameId,
+        playerId: widget.user.id,
+      );
+
+      // Show confirmation message
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('You have left the game'),
+            backgroundColor: Colors.orange,
+            duration: Duration(seconds: 2),
+          ),
+        );
+
+        // Navigate back to home/game selection
+        Navigator.of(context).pushReplacementNamed('/');
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to leave game: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    }
+  }
+
   Future<void> _endGame() async {
     if (_currentGameState == null || _currentGameSession == null) return;
     
@@ -2782,6 +2871,73 @@ class _CleanMultiplayerScreenState extends State<CleanMultiplayerScreen> {
           content: const Text(
             'The teacher has ended this game. You will be returned to the home page.',
             style: TextStyle(fontSize: 16),
+          ),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          actions: [
+            Center(
+              child: ElevatedButton(
+                onPressed: () {
+                  if (!mounted) return;
+                  final navigator = Navigator.of(context);
+                  navigator.pop(); // Close dialog
+                  if (mounted) {
+                    navigator.popUntil((route) => route.isFirst); // Go to home
+                  }
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
+                ),
+                child: const Text('OK'),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showGameEndedDialog(GameStatus status) {
+    String title;
+    String message;
+    Color iconColor;
+    IconData icon;
+
+    if (status == GameStatus.completed) {
+      title = 'Game Completed';
+      message = 'The teacher has ended this game. You will be returned to the home page.';
+      iconColor = AppColors.success;
+      icon = Icons.check_circle;
+    } else if (status == GameStatus.cancelled) {
+      title = 'Game Cancelled';
+      message = 'The teacher has cancelled this game. You will be returned to the home page.';
+      iconColor = AppColors.warning;
+      icon = Icons.cancel;
+    } else {
+      title = 'Game Ended';
+      message = 'The teacher has ended this game. You will be returned to the home page.';
+      iconColor = AppColors.warning;
+      icon = Icons.warning;
+    }
+
+    showDialog(
+      context: context,
+      barrierDismissible: false, // Can't dismiss by tapping outside
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Row(
+            children: [
+              Icon(icon, color: iconColor, size: 28),
+              const SizedBox(width: 12),
+              Text(title),
+            ],
+          ),
+          content: Text(
+            message,
+            style: const TextStyle(fontSize: 16),
           ),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),

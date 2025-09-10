@@ -92,6 +92,18 @@ service cloud.firestore {
       allow list: if isAuthenticatedTeacher();
     }
     
+    // Custom Word Lists collection - teachers manage their own custom word lists
+    match /custom_word_lists/{listId} {
+      // Students need to read word lists during games
+      allow read: if request.auth == null;
+      
+      // Only authenticated teachers can create/modify/delete their own custom word lists
+      allow write: if isAuthenticatedTeacher();
+      
+      // Allow authenticated teachers to query custom word lists collection
+      allow list: if isAuthenticatedTeacher();
+    }
+    
     // Analytics and logging collections
     match /word_generation_logs/{logId} {
       // Allow creating logs from the app (both authenticated and unauthenticated)

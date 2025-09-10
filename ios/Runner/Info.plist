@@ -47,7 +47,13 @@
 		</array>
 		<key>NSMicrophoneUsageDescription</key>
 		<string>This app needs access to the microphone to record voice prompts for creating educational games.</string>
-		<key>NSSpeechRecognitionUsageDescription</key>
+		<key>NSDocumentsFolderUsageDescription</key>
+	<string>This app needs access to documents folder to import UFLI word lists from PDF files.</string>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
+	<key>UISupportsDocumentBrowser</key>
+	<true/>
+	<key>NSSpeechRecognitionUsageDescription</key>
 		<string>This app uses speech recognition to convert voice prompts into text for creating educational games.</string>
 		<key>NSCameraUsageDescription</key>
 		<string>This app needs access to the camera to scan QR codes and join educational games.</string>

@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -21,6 +20,8 @@ import 'teacher_game_screen.dart';
 import 'teacher_review_screen.dart';
 import 'teacher_pronunciation_monitor.dart';
 import '../data/preset_word_lists.dart';
+import 'ufli_import_screen.dart';
+import '../utils/firebase_cleanup.dart';
 
 class AdminDashboardPage extends StatefulWidget {
   final UserModel adminUser;
@@ -64,7 +65,6 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
   bool _speechEnabled = false;
   
   bool _speechInitialized = false;
-  bool get _isMobilePlatform => !kIsWeb && (defaultTargetPlatform == TargetPlatform.iOS || defaultTargetPlatform == TargetPlatform.android);
 
   @override
   void initState() {
@@ -638,9 +638,6 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
     return '${date.month.toString().padLeft(2, '0')}/${date.day.toString().padLeft(2, '0')}/${date.year}';
   }
 
-  void _stopVoiceRecording() {
-    _speech?.stop();
-  }
 
 
   void _showCreateUserDialog() {
@@ -891,8 +888,11 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
     String selectedDifficulty = 'elementary';
     String wordListMode = 'default'; // 'default', 'new', or 'preset'
     int maxPlayers = 2; // Default to 2 players
-    String selectedPresetGrade = 'kindergarten'; // For preset lists
+    String? selectedWordListTitle; // For Firebase word list selection
     String selectedPrompt = ''; // Local to dialog - resets each time dialog opens
+    
+    // Cache the Future outside StatefulBuilder to prevent recreation on rebuild
+    final wordListsFuture = PresetWordLists.getAvailableWordListTypes();
 
     showDialog(
       context: context,
@@ -913,11 +913,6 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
                     value: 'preset',
                     label: Text('Preset Lists'),
                   ),
-                  // HIDDEN: Generate option per user request
-                  // ButtonSegment<String>(
-                  //   value: 'new',
-                  //   label: Text('Generate'),
-                  // ),
                 ],
                 selected: {wordListMode},
                 onSelectionChanged: (Set<String> newSelection) {
@@ -961,36 +956,87 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
               
               // Show options based on selected mode
               if (wordListMode == 'preset') ...[
-                DropdownButtonFormField<String>(
-                  value: selectedPresetGrade,
-                  decoration: const InputDecoration(
-                    labelText: 'Grade Level',
-                    prefixIcon: Icon(Icons.grade),
-                  ),
-                  items: const [
-                    DropdownMenuItem(
-                      value: 'kindergarten',
-                      child: Text('Kindergarten Sight Words'),
-                    ),
-                    DropdownMenuItem(
-                      value: 'first',
-                      child: Text('First Grade Trick Words'),
-                    ),
-                    DropdownMenuItem(
-                      value: 'second',
-                      child: Text('Second Grade Trick Words'),
-                    ),
-                  ],
-                  onChanged: (value) {
-                    setDialogState(() {
-                      selectedPresetGrade = value!;
-                    });
+                FutureBuilder<List<String>>(
+                  future: wordListsFuture,
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+                    
+                    if (snapshot.hasError) {
+                      return Text('Error: ${snapshot.error}');
+                    }
+                    
+                    final wordListTitles = snapshot.data ?? [];
+                    
+                    if (wordListTitles.isEmpty) {
+                      return const Text('No word lists available. Click the Share button to make word lists available.');
+                    }
+                    
+                    return DropdownButtonFormField<String>(
+                      value: wordListTitles.contains(selectedWordListTitle) ? selectedWordListTitle : null,
+                      decoration: const InputDecoration(
+                        labelText: 'Select Word List',
+                        border: OutlineInputBorder(),
+                        hintText: 'Choose a word list...',
+                      ),
+                      items: wordListTitles.map((title) => DropdownMenuItem<String>(
+                        value: title,
+                        child: Text(title, overflow: TextOverflow.ellipsis),
+                      )).toList(),
+                      onChanged: (String? newValue) {
+                        setDialogState(() {
+                          selectedWordListTitle = newValue;
+                        });
+                      },
+                    );
                   },
                 ),
-                const SizedBox(height: 8),
-                Text(
-                  '✓ Randomly selects 36 words from the chosen list',
-                  style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+                const SizedBox(height: 12),
+                // UFLI Attribution
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.blue.shade200),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.school, color: Colors.blue.shade700, size: 20),
+                          const SizedBox(width: 8),
+                          Text(
+                            'UFLI Lessons',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: Colors.blue.shade700,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Lessons provided by University of Florida Literacy Institute',
+                        style: TextStyle(
+                          color: Colors.blue.shade600,
+                          fontSize: 13,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Learn more at ufli.education.ufl.edu',
+                        style: TextStyle(
+                          color: Colors.blue.shade500,
+                          fontSize: 12,
+                          fontStyle: FontStyle.italic,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ] else if (wordListMode == 'new') ...[
                 DropdownButtonFormField<String>(
@@ -1032,7 +1078,10 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
               child: const Text('Cancel'),
             ),
             ElevatedButton(
-              onPressed: isCreating ? null : () async {
+              onPressed: isCreating || (wordListMode == 'preset' && selectedWordListTitle == null) 
+                  ? null 
+                  : () async {
+                if (isCreating) return; // Double-tap protection
                 setDialogState(() {
                   isCreating = true;
                 });
@@ -1052,8 +1101,8 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
                   
                   if (wordListMode == 'default') {
                     wordGrid = _getDefaultSimpleWordGrid();
-                  } else if (wordListMode == 'preset') {
-                    wordGrid = PresetWordLists.getRandomWordsForGrid(selectedPresetGrade);
+                  } else if (wordListMode == 'preset' && selectedWordListTitle != null) {
+                    wordGrid = await PresetWordLists.getWordGridByType(selectedWordListTitle!);
                   } else if (wordListMode == 'new') {
                     useAIWords = true;
                   }
@@ -1071,14 +1120,16 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
                     difficulty: useAIWords ? selectedDifficulty : null,
                   );
                   
-                  setDialogState(() {
-                    isCreating = false;
-                  });
-                  
+                  // Don't update dialog state since we're about to close it - prevents flash
                   if (mounted) {
+                    print('🎯 Game created successfully, navigating to teacher review...');
                     Navigator.of(context).pop();
-                    // Navigate to teacher review screen instead of showing completion dialog
-                    _navigateToTeacherReview(gameSession, useAIWords ? selectedPrompt : null, useAIWords ? selectedDifficulty : null);
+                    // Small delay to ensure dialog is fully closed
+                    await Future.delayed(const Duration(milliseconds: 100));
+                    if (mounted) {
+                      // Navigate to teacher review screen instead of showing completion dialog
+                      _navigateToTeacherReview(gameSession, useAIWords ? selectedPrompt : null, useAIWords ? selectedDifficulty : null);
+                    }
                   }
                 } catch (e) {
                   setDialogState(() {
@@ -1348,227 +1399,6 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
     ];
   }
 
-  void _showCreateGameDialog() {
-    bool isCreating = false;
-    String selectedDifficulty = 'elementary';
-    String wordListMode = 'default'; // 'default', 'new', or 'preset'
-    int maxPlayers = 2; // Default to 2 players
-    String selectedPresetGrade = 'kindergarten'; // For preset lists
-    String selectedPrompt = ''; // Local to dialog - resets each time dialog opens
-
-    showDialog(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: const Text('Create New Game'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Word list selection - simplified
-              SegmentedButton<String>(
-                segments: const [
-                  ButtonSegment<String>(
-                    value: 'default',
-                    label: Text('Quick'),
-                  ),
-                  ButtonSegment<String>(
-                    value: 'preset',
-                    label: Text('Preset Lists'),
-                  ),
-                  // HIDDEN: Generate option per user request
-                  // ButtonSegment<String>(
-                  //   value: 'new',
-                  //   label: Text('Generate'),
-                  // ),
-                ],
-                selected: {wordListMode},
-                onSelectionChanged: (Set<String> newSelection) {
-                  setDialogState(() {
-                    wordListMode = newSelection.first;
-                  });
-                },
-              ),
-              const SizedBox(height: 16),
-              
-              // Player count selection
-              const Text(
-                'Number of Players',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 8),
-              SegmentedButton<int>(
-                segments: const [
-                  ButtonSegment<int>(
-                    value: 1,
-                    label: Text('1 Player'),
-                    icon: Icon(Icons.person),
-                  ),
-                  ButtonSegment<int>(
-                    value: 2,
-                    label: Text('2 Players'),
-                    icon: Icon(Icons.people),
-                  ),
-                ],
-                selected: {maxPlayers},
-                onSelectionChanged: (Set<int> newSelection) {
-                  setDialogState(() {
-                    maxPlayers = newSelection.first;
-                  });
-                },
-              ),
-              const SizedBox(height: 16),
-              
-              // Show options based on selected mode
-              if (wordListMode == 'preset') ...[
-                DropdownButtonFormField<String>(
-                  value: selectedPresetGrade,
-                  decoration: const InputDecoration(
-                    labelText: 'Grade Level',
-                    prefixIcon: Icon(Icons.grade),
-                  ),
-                  items: const [
-                    DropdownMenuItem(
-                      value: 'kindergarten',
-                      child: Text('Kindergarten Sight Words'),
-                    ),
-                    DropdownMenuItem(
-                      value: 'first',
-                      child: Text('First Grade Trick Words'),
-                    ),
-                    DropdownMenuItem(
-                      value: 'second',
-                      child: Text('Second Grade Trick Words'),
-                    ),
-                  ],
-                  onChanged: (value) {
-                    setDialogState(() {
-                      selectedPresetGrade = value!;
-                    });
-                  },
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  '✓ Randomly selects 36 words from the chosen list',
-                  style: TextStyle(fontSize: 14, color: Colors.grey[600]),
-                ),
-              ] else if (wordListMode == 'new') ...[
-                DropdownButtonFormField<String>(
-                  value: selectedDifficulty,
-                  decoration: const InputDecoration(
-                    labelText: 'Reading Level',
-                    prefixIcon: Icon(Icons.school),
-                  ),
-                  items: AIWordService.getDifficultyLevels()
-                      .map((level) => DropdownMenuItem(
-                            value: level,
-                            child: Text(level.replaceAll('-', ' ').toUpperCase()),
-                          ))
-                      .toList(),
-                  onChanged: (value) {
-                    setDialogState(() {
-                      selectedDifficulty = value!;
-                    });
-                  },
-                ),
-                const SizedBox(height: 16),
-                // Simple pattern selection buttons instead of complex text input
-                _buildSimplePatternSelector(setDialogState, selectedPrompt, (newPrompt) {
-                  setDialogState(() {
-                    selectedPrompt = newPrompt;
-                  });
-                }),
-              ] else ...[
-                const Text(
-                  '✓ Start a quick game with a default list of simple words',
-                  style: TextStyle(fontSize: 14, color: Colors.grey),
-                ),
-              ],
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: isCreating ? null : () async {
-                setDialogState(() {
-                  isCreating = true;
-                });
-                
-                try {
-                  // Auto-generate game name
-                  final now = DateTime.now();
-                  String period = now.hour >= 12 ? 'PM' : 'AM';
-                  int hour = now.hour;
-                  if (hour > 12) hour -= 12;
-                  if (hour == 0) hour = 12;
-                  String gameName = 'Game ${now.month}/${now.day} ${hour}:${now.minute.toString().padLeft(2, '0')} $period';
-                  
-                  // Get word grid based on selected mode
-                  List<List<String>>? wordGrid;
-                  bool useAIWords = false;
-                  
-                  if (wordListMode == 'default') {
-                    wordGrid = _getDefaultSimpleWordGrid();
-                  } else if (wordListMode == 'preset') {
-                    wordGrid = PresetWordLists.getRandomWordsForGrid(selectedPresetGrade);
-                  } else if (wordListMode == 'new') {
-                    useAIWords = true;
-                  }
-                  
-                  // Create the game session
-                  final gameSession = await GameSessionService.createGameSession(
-                    createdBy: widget.adminUser.id,
-                    gameName: gameName,
-                    maxPlayers: maxPlayers,
-                    wordGrid: wordGrid,
-                    useAIWords: useAIWords,
-                    aiPrompt: useAIWords ? (selectedPrompt.isEmpty 
-                        ? 'Simple educational words for middle school students' 
-                        : selectedPrompt) : null,
-                    difficulty: useAIWords ? selectedDifficulty : null,
-                  );
-                  
-                  setDialogState(() {
-                    isCreating = false;
-                  });
-                  
-                  if (mounted) {
-                    Navigator.of(context).pop();
-                    // Navigate to teacher review screen instead of showing completion dialog
-                    _navigateToTeacherReview(gameSession, useAIWords ? selectedPrompt : null, useAIWords ? selectedDifficulty : null);
-                  }
-                } catch (e) {
-                  setDialogState(() {
-                    isCreating = false;
-                  });
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('Failed to create game: $e'),
-                        backgroundColor: AppColors.error,
-                      ),
-                    );
-                  }
-                }
-              },
-              child: isCreating 
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Text('Create Game'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -1601,6 +1431,24 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
               _loadStatistics();
             },
             tooltip: 'Refresh',
+          ),
+          // UFLI Import button
+          IconButton(
+            icon: const Icon(Icons.upload_file),
+            onPressed: () => _showUFLIImportScreen(),
+            tooltip: 'Import Custom Word Lists',
+          ),
+          // Fix shared word lists button
+          IconButton(
+            icon: const Icon(Icons.share),
+            onPressed: () => _fixSharedWordLists(),
+            tooltip: 'Mark all word lists as shared',
+          ),
+          // Clean instructional words from word lists
+          IconButton(
+            icon: const Icon(Icons.cleaning_services),
+            onPressed: () => _cleanInstructionalWords(),
+            tooltip: 'Clean instructional words from word lists',
           ),
           // Firebase status button
           IconButton(
@@ -1715,11 +1563,10 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
       builder: (context, snapshot) {
         if (snapshot.data != null) {
           // Update the active games list without setState to avoid rebuild loop
-          // Include waiting, in-progress, and pending review games
+          // Include only waiting and in-progress games (pending review goes to completed tab)
           _activeGames = snapshot.data!.where((game) => 
             game.status == GameStatus.waitingForPlayers || 
-            game.status == GameStatus.inProgress ||
-            game.status == GameStatus.pendingTeacherReview
+            game.status == GameStatus.inProgress
           ).toList();
         }
         
@@ -3504,6 +3351,176 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> with SingleTick
 
 
 
+
+  void _showUFLIImportScreen() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const UFLIImportScreen(),
+      ),
+    );
+  }
+
+  void _fixSharedWordLists() async {
+    // Show confirmation dialog first
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Mark All Word Lists as Shared'),
+        content: const Text(
+          'This will mark ALL word lists in your database as shared, making them available in the preset dropdown. Are you sure?'
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Yes, Make Shared'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    try {
+      // Show loading
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Updating word lists...')),
+      );
+
+      // Get all word lists (not just shared ones)
+      final firestore = FirebaseFirestore.instance;
+      final querySnapshot = await firestore
+          .collection('custom_word_lists')
+          .get();
+      
+      print('📊 Found ${querySnapshot.docs.length} total word lists');
+      
+      int updatedCount = 0;
+      for (final doc in querySnapshot.docs) {
+        final data = doc.data();
+        final isShared = data['isShared'] ?? false;
+        
+        if (!isShared) {
+          // Update this document to be shared
+          await doc.reference.update({'isShared': true});
+          updatedCount++;
+          print('✅ Updated "${data['title']}" to be shared');
+        }
+      }
+      
+      print('🎉 Updated $updatedCount word lists to be shared');
+      
+      // Show success message
+      if (mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Successfully marked $updatedCount word lists as shared! Total available: ${querySnapshot.docs.length}'),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
+      
+    } catch (e) {
+      print('❌ Error updating word lists: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error updating word lists: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  void _cleanInstructionalWords() async {
+    // Show confirmation dialog first
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Clean Instructional Words'),
+        content: const Text(
+          'This will remove instructional words like "practice", "lesson", "directions" from all Firebase word lists. '
+          'These words are from titles and instructions, not meant for students to read.\n\n'
+          'This action cannot be undone. Continue?'
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Clean Word Lists'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    // Show loading indicator
+    if (mounted) {
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Row(
+            children: [
+              SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+              SizedBox(width: 16),
+              Text('Cleaning instructional words from Firebase word lists...'),
+            ],
+          ),
+          duration: Duration(minutes: 5), // Long duration for this operation
+        ),
+      );
+    }
+
+    try {
+      // Run the Firebase cleanup
+      await FirebaseCleanup.cleanInstructionalWordsFromWordLists();
+
+      // Show success message
+      if (mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Successfully cleaned instructional words from Firebase word lists!'),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 5),
+          ),
+        );
+      }
+    } catch (e) {
+      print('❌ Error cleaning instructional words: $e');
+      
+      // Show error message
+      if (mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error cleaning word lists: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
 
   void _showFirebaseStatus() {
     final isReady = FirestoreService.isFirebaseReady;

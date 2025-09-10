@@ -98,24 +98,30 @@ class GameStateService {
       try {
         if (snapshot.exists && snapshot.data() != null) {
           final data = snapshot.data();
+          
+          // Handle JavaScript object conversion for Flutter web
+          Map<String, dynamic> convertedData;
           if (data is Map<String, dynamic>) {
-            final gameState = GameStateModel.fromMap(data);
-            
-            // Check if game state is in a broken state (no current turn player)
-            if (gameState.currentTurnPlayerId == null) {
-              print('🚨 BROKEN GAME STATE DETECTED: No current turn player for game ${gameState.gameId}');
-              // We can't fix it here in the stream, but we can log it
-            }
-            
-            return gameState;
+            convertedData = data;
           } else {
-            print('⚠️ Game state stream data is not a Map<String, dynamic>: ${data.runtimeType}');
-            return null;
+            // Convert JavaScript object to proper Map for Flutter web
+            convertedData = Map<String, dynamic>.from(data as Map);
           }
+          
+          final gameState = GameStateModel.fromMap(convertedData);
+          
+          // Check if game state is in a broken state (no current turn player)
+          if (gameState.currentTurnPlayerId == null) {
+            print('🚨 BROKEN GAME STATE DETECTED: No current turn player for game ${gameState.gameId}');
+            // We can't fix it here in the stream, but we can log it
+          }
+          
+          return gameState;
         }
         return null;
-      } catch (e) {
+      } catch (e, stackTrace) {
         print('⚠️ Error parsing game state from stream: $e');
+        print('⚠️ Stack trace: $stackTrace');
         return null;
       }
     });

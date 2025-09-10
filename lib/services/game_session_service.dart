@@ -129,27 +129,49 @@ class GameSessionService {
         throw Exception('Game not found');
       }
       
-      safePrint('🎮 JOIN GAME ATTEMPT: ${gameSession.gameId} by ${user.displayName}');
+      safePrint('🎮 JOIN GAME ATTEMPT: ${gameSession.gameId} by ${user.displayName} (ID: ${user.id}, Email: ${user.emailAddress})');
       safePrint('🎮 Game Status: ${gameSession.status}');
       safePrint('🎮 Max Players: ${gameSession.maxPlayers}');
       safePrint('🎮 Current Players: ${gameSession.players.length}');
       safePrint('🎮 Player IDs: ${gameSession.playerIds}');
+      safePrint('🎮 Existing Players: ${gameSession.players.map((p) => '${p.displayName}(${p.userId})').join(', ')}');
 
-      if (gameSession.isFull && !gameSession.playerIds.contains(user.id)) {
-        safePrint('❌ JOIN GAME FAILED: Game is full');
-        throw Exception('Game is full');
+      // FIRST: Check if user is already in the game by ID, display name, or email to prevent duplicate joins
+      final existingPlayerByUserId = gameSession.playerIds.contains(user.id);
+      
+      // Normalize strings for comparison (remove all whitespace, convert to lowercase)
+      final normalizeString = (String s) => s.toLowerCase().replaceAll(RegExp(r'\s+'), '').trim();
+      final userDisplayNameNormalized = normalizeString(user.displayName);
+      final userEmailNormalized = normalizeString(user.emailAddress);
+      
+      final existingPlayerByDisplayName = gameSession.players.any((player) => 
+        normalizeString(player.displayName) == userDisplayNameNormalized);
+      final existingPlayerByEmail = gameSession.players.any((player) => 
+        normalizeString(player.emailAddress) == userEmailNormalized);
+      
+      safePrint('🔍 DUPLICATE CHECK: UserID=${existingPlayerByUserId}, Name=${existingPlayerByDisplayName}, Email=${existingPlayerByEmail}');
+      safePrint('🔍 User trying to join: "${user.displayName}" normalized: "$userDisplayNameNormalized"');
+      safePrint('🔍 Existing players: ${gameSession.players.map((p) => '"${p.displayName}" normalized: "${normalizeString(p.displayName)}"').join(', ')}');
+      
+      // STRICT DUPLICATE PREVENTION: No rejoining allowed at all
+      if (existingPlayerByUserId || existingPlayerByDisplayName || existingPlayerByEmail) {
+        safePrint('❌ JOIN GAME FAILED: Player already in game - blocking duplicate join');
+        safePrint('❌ Detected duplicate by: UserID=$existingPlayerByUserId, Name=$existingPlayerByDisplayName, Email=$existingPlayerByEmail');
+        
+        // Different messages based on how they were detected as duplicate
+        if (existingPlayerByUserId) {
+          throw 'You are already in this game. Only one device per player is allowed.';
+        } else if (existingPlayerByDisplayName) {
+          throw 'A player with this name is already in the game. Only one device per player is allowed.';
+        } else {
+          throw 'A player with this email is already in the game. Only one device per player is allowed.';
+        }
       }
 
-      // If user is already in the game, allow them to rejoin
-      if (gameSession.playerIds.contains(user.id)) {
-        safePrint('🔄 User already in game, allowing rejoin');
-        // Allow rejoining if game is waiting or in progress
-        if (gameSession.status == GameStatus.waitingForPlayers || gameSession.status == GameStatus.inProgress) {
-          return gameSession; // Just return the existing game session
-        } else {
-          safePrint('❌ JOIN GAME FAILED: Game has ended');
-          throw Exception('You are already in this game, but it has ended.');
-        }
+      // SECOND: Check if game is full (now that we know this is not a duplicate)
+      if (gameSession.isFull) {
+        safePrint('❌ JOIN GAME FAILED: Game is full');
+        throw Exception('Game is full');
       }
 
       if (gameSession.status != GameStatus.waitingForPlayers) {
@@ -266,7 +288,7 @@ class GameSessionService {
       }
 
       if (!gameSession.canStart) {
-        throw Exception('Need at least 1 player to start');
+        throw Exception('Need ${gameSession.maxPlayers} player${gameSession.maxPlayers == 1 ? '' : 's'} to start');
       }
 
       if (gameSession.status != GameStatus.waitingForPlayers) {
